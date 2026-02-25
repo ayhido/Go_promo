@@ -9,7 +9,6 @@ async function aiParseCandidate(text) {
     .replace(/\n/g, " ")
     .replace(/,/g, " ")
     .trim();
-
   const words = cleaned.split(/\s+/);
 
   // имя — первое слово с буквы
