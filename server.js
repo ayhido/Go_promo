@@ -1,16 +1,22 @@
-const leadsMemory = new Map();
 import express from "express";
 import axios from "axios";
-
-const app = express();
-app.use(express.json());
 import path from "path";
 import { fileURLToPath } from "url";
 
+// ===============================
+// ⚙️ базовая настройка
+// ===============================
+const app = express();
+app.use(express.json());
+
+// память для антидублей
+const leadsMemory = new Map();
+
+// пути для статики
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-
 app.use(express.static(path.join(__dirname, "public")));
+
 // ===============================
 // 🔥 Telegram настройки
 // ===============================
@@ -30,7 +36,7 @@ async function aiParseCandidate(text) {
 
   const words = cleaned.split(/\s+/);
 
-  // имя — первое слово с буквы
+  // имя — первое слово с заглавной
   const nameMatch = cleaned.match(/[А-ЯЁ][а-яё]+/);
 
   // возраст 16–60
@@ -63,21 +69,25 @@ async function sendTelegramNotification(lead, text) {
     `👤 ${lead.name || "—"} | 🎂 ${lead.age || "—"} | 🏙 ${lead.city || "—"}\n\n` +
     `💬 ${text}`;
 
-  await axios.post(
-    `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
-    {
-      chat_id: TG_CHAT_ID,
-      text: message,
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "✅ Записан", callback_data: "ok" },
-            { text: "❌ Отказ", callback_data: "no" }
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
+      {
+        chat_id: TG_CHAT_ID,
+        text: message,
+        reply_markup: {
+          inline_keyboard: [
+            [
+              { text: "✅ Записан", callback_data: "ok" },
+              { text: "❌ Отказ", callback_data: "no" }
+            ]
           ]
-        ]
+        }
       }
-    }
-  );
+    );
+  } catch (e) {
+    console.error("Telegram error:", e.message);
+  }
 }
 
 // ===============================
@@ -98,7 +108,7 @@ app.post("/api/manual-lead", async (req, res) => {
       return res.status(400).json({ error: "No text provided" });
     }
 
-    // 🔥 антидубль по тексту
+    // 🔥 антидубль
     if (leadsMemory.has(text)) {
       return res.json({
         ok: true,
@@ -118,28 +128,10 @@ app.post("/api/manual-lead", async (req, res) => {
       lastMessage: text,
     };
 
-    // ✅ сохраняем в память
+    // сохраняем в память
     leadsMemory.set(text, lead);
 
-    // 📲 уведомление в Telegram
-    await sendTelegramNotification(lead, text);
-
-    res.json({ ok: true, lead });
-  } catch (e) {
-    console.error("Manual lead error:", e);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-    const lead = {
-      name: parsed.name || "Неизвестно",
-      age: parsed.age,
-      city: parsed.city || "",
-      status: parsed.age ? "Заполнен" : "Новый",
-      source: "Avito",
-      lastMessage: text,
-    };
-
-    // 📲 уведомление в Telegram
+    // уведомление в Telegram
     await sendTelegramNotification(lead, text);
 
     res.json({ ok: true, lead });
@@ -149,6 +141,8 @@ app.post("/api/manual-lead", async (req, res) => {
   }
 });
 
+// ===============================
+// 🚀 запуск сервера
 // ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
