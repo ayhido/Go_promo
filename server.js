@@ -1,7 +1,18 @@
-import OpenAI from "openai";
-const openai = new OpenAI({
-  apiKey: process.env.OPENAI_API_KEY,
-});
+import express from "express";
+import axios from "axios";
+
+const app = express();
+app.use(express.json());
+
+// ===============================
+// 🔥 Telegram настройки
+// ===============================
+const TG_TOKEN = process.env.TG_TOKEN;
+const TG_CHAT_ID = process.env.TG_CHAT_ID;
+
+// ===============================
+// 🧠 Умный локальный парсер
+// ===============================
 async function aiParseCandidate(text) {
   if (!text) return {};
 
@@ -9,6 +20,7 @@ async function aiParseCandidate(text) {
     .replace(/\n/g, " ")
     .replace(/,/g, " ")
     .trim();
+
   const words = cleaned.split(/\s+/);
 
   // имя — первое слово с буквы
@@ -32,44 +44,43 @@ async function aiParseCandidate(text) {
     city: city || ""
   };
 }
-Сообщение:
-${text}
-`;
 
-  const response = await openai.chat.completions.create({
-    model: "gpt-4o-mini",
-    messages: [{ role: "user", content: prompt }],
-    temperature: 0,
-  });
+// ===============================
+// 📲 Telegram уведомление
+// ===============================
+async function sendTelegramNotification(lead, text) {
+  if (!TG_TOKEN || !TG_CHAT_ID) return;
+
+  const message =
+    `🔥 Новый отклик с Авито\n\n` +
+    `👤 Имя: ${lead.name || "—"}\n` +
+    `🎂 Возраст: ${lead.age || "—"}\n` +
+    `🏙 Город: ${lead.city || "—"}\n\n` +
+    `💬 Сообщение:\n${text}`;
 
   try {
-    return JSON.parse(response.choices[0].message.content);
-  } catch {
-    return {};
+    await axios.post(
+      `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
+      {
+        chat_id: TG_CHAT_ID,
+        text: message,
+      }
+    );
+  } catch (e) {
+    console.error("Telegram error:", e.message);
   }
 }
-import express from "express";
-import axios from "axios";
 
-const app = express();
-app.use(express.json());
-
-// проверка сервера
+// ===============================
+// ✅ Проверка сервера
+// ===============================
 app.get("/", (req, res) => {
   res.send("GoPromo CRM backend is running 🚀");
 });
 
-// webhook Авито
-app.post("/api/avito/webhook", async (req, res) => {
-  res.sendStatus(200);
-  console.log("Avito webhook:", req.body);
-});
-
-const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Server started on port", PORT);
-});
-// 🔥 ручное добавление лида из Авито
+// ===============================
+// 🔥 Ручное добавление лида
+// ===============================
 app.post("/api/manual-lead", async (req, res) => {
   try {
     const { text } = req.body;
@@ -78,7 +89,6 @@ app.post("/api/manual-lead", async (req, res) => {
       return res.status(400).json({ error: "No text provided" });
     }
 
-    // 🧠 AI разбор
     const parsed = await aiParseCandidate(text);
 
     const lead = {
@@ -90,12 +100,18 @@ app.post("/api/manual-lead", async (req, res) => {
       lastMessage: text,
     };
 
-    // 📲 Telegram уведомление
+    // 📲 уведомление в Telegram
     await sendTelegramNotification(lead, text);
 
     res.json({ ok: true, lead });
   } catch (e) {
-    console.error(e);
+    console.error("Manual lead error:", e);
     res.status(500).json({ error: "Server error" });
   }
+});
+
+// ===============================
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log("Server started on port", PORT);
 });
