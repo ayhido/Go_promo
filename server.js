@@ -2,46 +2,41 @@ import express from "express";
 import axios from "axios";
 import path from "path";
 import { fileURLToPath } from "url";
+import XLSX from "xlsx";
+import multer from "multer";
 
-// ===============================
-// ⚙️ базовая настройка
-// ===============================
 const app = express();
 app.use(express.json());
 
-// антидубли
+// ===== память =====
 const leadsMemory = new Map();
-
-// база лидов
 const leadsStore = new Map();
 let leadCounter = 1;
 
-// пути статики
+// ===== upload =====
+const upload = multer({ storage: multer.memoryStorage() });
+
+// ===== статика =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, "public")));
 
-// ===============================
-// 🔥 Telegram настройки
-// ===============================
+// ===== Telegram =====
 const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
-// ===============================
-// 🧠 локальный парсер
-// ===============================
+// ================= парсер =================
 async function aiParseCandidate(text) {
   if (!text) return {};
 
-  const cleaned = text
-    .replace(/\n/g, " ")
-    .replace(/,/g, " ")
-    .trim();
-
+  const cleaned = text.replace(/\n/g, " ").replace(/,/g, " ").trim();
   const words = cleaned.split(/\s+/);
 
   const nameMatch = cleaned.match(/[А-ЯЁ][а-яё]+/);
   const ageMatch = cleaned.match(/\b(1[6-9]|[2-5]\d|60)\b/);
+
+  // телефон
+  const phoneMatch = cleaned.match(/(\+?\d[\d\s\-()]{7,}\d)/);
 
   let city = "";
   for (let i = words.length - 1; i >= 0; i--) {
@@ -54,129 +49,95 @@ async function aiParseCandidate(text) {
   return {
     name: nameMatch ? nameMatch[0] : "Неизвестно",
     age: ageMatch ? parseInt(ageMatch[0]) : null,
-    city: city || ""
+    city: city || "",
+    phone: phoneMatch ? phoneMatch[0].replace(/\D/g, "") : ""
   };
 }
 
-// ===============================
-// 📲 Telegram уведомление
-// ===============================
+// ================= Telegram notify =================
 async function sendTelegramNotification(lead, text) {
   if (!TG_TOKEN || !TG_CHAT_ID) return;
 
+  const tgLink = lead.phone
+    ? `https://t.me/+${lead.phone}`
+    : "—";
+
   const message =
-    `🔥 Новый отклик с Авито\n\n` +
-    `👤 ${lead.name || "—"} | 🎂 ${lead.age || "—"} | 🏙 ${lead.city || "—"}\n\n` +
+    `🔥 Новый отклик\n\n` +
+    `👤 ${lead.name}\n` +
+    `🎂 ${lead.age || "—"}\n` +
+    `🏙 ${lead.city}\n` +
+    `📱 ${lead.phone || "—"}\n` +
+    `🔗 ${tgLink}\n\n` +
     `💬 ${text}`;
 
-  try {
-    await axios.post(
-      `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
-      {
-        chat_id: TG_CHAT_ID,
-        text: message,
-        reply_markup: {
-          inline_keyboard: [
-            [
-              { text: "✅ Записан", callback_data: `ok:${lead.id}` },
-              { text: "❌ Отказ", callback_data: `no:${lead.id}` }
-            ]
+  await axios.post(
+    `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
+    {
+      chat_id: TG_CHAT_ID,
+      text: message,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "✅ Записан", callback_data: `ok:${lead.id}` },
+            { text: "❌ Отказ", callback_data: `no:${lead.id}` }
           ]
-        }
+        ]
       }
-    );
-  } catch (e) {
-    console.error("Telegram error:", e.message);
-  }
+    }
+  );
 }
 
-// ===============================
-// 🤖 Telegram webhook
-// ===============================
+// ================= Telegram webhook =================
 app.post("/telegram-webhook", async (req, res) => {
   try {
-    const update = req.body;
+    const q = req.body.callback_query;
+    if (!q) return res.json({ ok: true });
 
-    if (update.callback_query) {
-      const data = update.callback_query.data;
-      const chatId = update.callback_query.message.chat.id;
-      const messageId = update.callback_query.message.message_id;
+    const [action, idStr] = q.data.split(":");
+    const lead = leadsStore.get(Number(idStr));
 
-      const [action, leadIdStr] = data.split(":");
-      const leadId = Number(leadIdStr);
-
-      let text = "Статус обновлён";
-
-      const lead = leadsStore.get(leadId);
-
-      if (lead) {
-        if (action === "ok") {
-          lead.status = "Записан";
-          text = `✅ ${lead.name} записан`;
-        }
-
-        if (action === "no") {
-          lead.status = "Отказ";
-          text = `❌ ${lead.name} отказ`;
-        }
-      }
-
-      await axios.post(
-        `https://api.telegram.org/bot${TG_TOKEN}/editMessageText`,
-        {
-          chat_id: chatId,
-          message_id: messageId,
-          text
-        }
-      );
+    if (lead) {
+      if (action === "ok") lead.status = "Записан";
+      if (action === "no") lead.status = "Отказ";
     }
+
+    await axios.post(
+      `https://api.telegram.org/bot${TG_TOKEN}/editMessageText`,
+      {
+        chat_id: q.message.chat.id,
+        message_id: q.message.message_id,
+        text: `${lead?.status || "Статус"} — ${lead?.name || ""}`
+      }
+    );
 
     res.json({ ok: true });
   } catch (e) {
-    console.error("Telegram webhook error:", e.message);
+    console.error(e.message);
     res.json({ ok: true });
   }
 });
 
-// ===============================
-// ✅ проверка сервера
-// ===============================
-app.get("/", (req, res) => {
-  res.send("GoPromo CRM backend is running 🚀");
-});
-
-// ===============================
-// 🔥 ручное добавление лида
-// ===============================
+// ================= ручной лид =================
 app.post("/api/manual-lead", async (req, res) => {
   try {
     const { text } = req.body;
+    if (!text) return res.status(400).json({ error: "No text" });
 
-    if (!text) {
-      return res.status(400).json({ error: "No text provided" });
-    }
-
-    // антидубль
     if (leadsMemory.has(text)) {
-      return res.json({
-        ok: true,
-        duplicate: true,
-        lead: leadsMemory.get(text)
-      });
+      return res.json({ ok: true, duplicate: true });
     }
 
     const parsed = await aiParseCandidate(text);
-
     const id = leadCounter++;
 
     const lead = {
       id,
-      name: parsed.name || "Неизвестно",
+      name: parsed.name,
       age: parsed.age,
-      city: parsed.city || "",
+      city: parsed.city,
+      phone: parsed.phone,
       status: parsed.age ? "Заполнен" : "Новый",
-      source: "Avito",
-      lastMessage: text,
       createdAt: Date.now()
     };
 
@@ -187,29 +148,66 @@ app.post("/api/manual-lead", async (req, res) => {
 
     res.json({ ok: true, lead });
   } catch (e) {
-    console.error("Manual lead error:", e);
     res.status(500).json({ error: "Server error" });
   }
 });
 
-// ===============================
-// 📊 статистика
-// ===============================
-app.get("/api/stats", (req, res) => {
-  const stats = {
-    total: leadsStore.size,
-    zapisano: [...leadsStore.values()].filter(l => l.status === "Записан").length,
-    otkaz: [...leadsStore.values()].filter(l => l.status === "Отказ").length,
-    new: [...leadsStore.values()].filter(l => l.status === "Новый").length
-  };
+// ================= массовый импорт =================
+app.post("/api/import", upload.single("file"), async (req, res) => {
+  try {
+    const content = req.file.buffer.toString("utf-8");
+    const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
 
-  res.json(stats);
+    let added = 0;
+
+    for (const text of lines) {
+      if (leadsMemory.has(text)) continue;
+
+      const parsed = await aiParseCandidate(text);
+      const id = leadCounter++;
+
+      const lead = {
+        id,
+        name: parsed.name,
+        age: parsed.age,
+        city: parsed.city,
+        phone: parsed.phone,
+        status: parsed.age ? "Заполнен" : "Новый",
+        createdAt: Date.now()
+      };
+
+      leadsMemory.set(text, lead);
+      leadsStore.set(id, lead);
+      await sendTelegramNotification(lead, text);
+      added++;
+    }
+
+    res.json({ ok: true, added });
+  } catch (e) {
+    res.status(500).json({ error: "Import error" });
+  }
 });
 
-// ===============================
-// 🚀 запуск
-// ===============================
+// ================= список =================
+app.get("/api/leads", (req, res) => {
+  res.json([...leadsStore.values()]);
+});
+
+// ================= Excel =================
+app.get("/api/export", (req, res) => {
+  const data = [...leadsStore.values()];
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Leads");
+  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+  res.setHeader("Content-Disposition", "attachment; filename=leads.xlsx");
+  res.send(buffer);
+});
+
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/index.html"));
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
-  console.log("Server started on port", PORT);
-});
+app.listen(PORT, () => console.log("Server started", PORT));
