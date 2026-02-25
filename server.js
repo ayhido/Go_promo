@@ -13,7 +13,6 @@ const leadsMemory = new Map();
 const leadsStore = new Map();
 let leadCounter = 1;
 
-// ===== upload =====
 const upload = multer({ storage: multer.memoryStorage() });
 
 // ===== статика =====
@@ -25,8 +24,8 @@ app.use(express.static(path.join(__dirname, "public")));
 const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
-// ================= парсер =================
-async function aiParseCandidate(text) {
+// ========= ПАРСЕР =========
+function parseCandidate(text) {
   if (!text) return {};
 
   const cleaned = text.replace(/\n/g, " ").replace(/,/g, " ").trim();
@@ -34,8 +33,6 @@ async function aiParseCandidate(text) {
 
   const nameMatch = cleaned.match(/[А-ЯЁ][а-яё]+/);
   const ageMatch = cleaned.match(/\b(1[6-9]|[2-5]\d|60)\b/);
-
-  // телефон
   const phoneMatch = cleaned.match(/(\+?\d[\d\s\-()]{7,}\d)/);
 
   let city = "";
@@ -49,12 +46,12 @@ async function aiParseCandidate(text) {
   return {
     name: nameMatch ? nameMatch[0] : "Неизвестно",
     age: ageMatch ? parseInt(ageMatch[0]) : null,
-    city: city || "",
+    city,
     phone: phoneMatch ? phoneMatch[0].replace(/\D/g, "") : ""
   };
 }
 
-// ================= Telegram notify =================
+// ========= Telegram =========
 async function sendTelegramNotification(lead, text) {
   if (!TG_TOKEN || !TG_CHAT_ID) return;
 
@@ -62,33 +59,27 @@ async function sendTelegramNotification(lead, text) {
     ? `https://t.me/+${lead.phone}`
     : "—";
 
-  const message =
-    `🔥 Новый отклик\n\n` +
-    `👤 ${lead.name}\n` +
-    `🎂 ${lead.age || "—"}\n` +
-    `🏙 ${lead.city}\n` +
-    `📱 ${lead.phone || "—"}\n` +
-    `🔗 ${tgLink}\n\n` +
-    `💬 ${text}`;
-
-  await axios.post(
-    `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
-    {
-      chat_id: TG_CHAT_ID,
-      text: message,
-      reply_markup: {
-        inline_keyboard: [
-          [
-            { text: "✅ Записан", callback_data: `ok:${lead.id}` },
-            { text: "❌ Отказ", callback_data: `no:${lead.id}` }
-          ]
-        ]
+  try {
+    await axios.post(
+      `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
+      {
+        chat_id: TG_CHAT_ID,
+        text:
+          `🔥 Новый отклик\n\n` +
+          `👤 ${lead.name}\n` +
+          `🎂 ${lead.age || "—"}\n` +
+          `🏙 ${lead.city}\n` +
+          `📱 ${lead.phone || "—"}\n` +
+          `🔗 ${tgLink}\n\n` +
+          `💬 ${text}`
       }
-    }
-  );
+    );
+  } catch (e) {
+    console.error("TG error:", e.message);
+  }
 }
 
-// ================= Telegram webhook =================
+// ========= webhook =========
 app.post("/telegram-webhook", async (req, res) => {
   try {
     const q = req.body.callback_query;
@@ -102,23 +93,13 @@ app.post("/telegram-webhook", async (req, res) => {
       if (action === "no") lead.status = "Отказ";
     }
 
-    await axios.post(
-      `https://api.telegram.org/bot${TG_TOKEN}/editMessageText`,
-      {
-        chat_id: q.message.chat.id,
-        message_id: q.message.message_id,
-        text: `${lead?.status || "Статус"} — ${lead?.name || ""}`
-      }
-    );
-
     res.json({ ok: true });
-  } catch (e) {
-    console.error(e.message);
+  } catch {
     res.json({ ok: true });
   }
 });
 
-// ================= ручной лид =================
+// ========= добавление =========
 app.post("/api/manual-lead", async (req, res) => {
   try {
     const { text } = req.body;
@@ -128,7 +109,7 @@ app.post("/api/manual-lead", async (req, res) => {
       return res.json({ ok: true, duplicate: true });
     }
 
-    const parsed = await aiParseCandidate(text);
+    const parsed = parseCandidate(text);
     const id = leadCounter++;
 
     const lead = {
@@ -152,18 +133,22 @@ app.post("/api/manual-lead", async (req, res) => {
   }
 });
 
-// ================= массовый импорт =================
+// ========= импорт =========
 app.post("/api/import", upload.single("file"), async (req, res) => {
   try {
+    if (!req.file) {
+      return res.status(400).json({ error: "Файл не выбран" });
+    }
+
     const content = req.file.buffer.toString("utf-8");
-    const lines = content.split("\n").map(l => l.trim()).filter(Boolean);
+    const lines = content.split("\n").map(x => x.trim()).filter(Boolean);
 
     let added = 0;
 
     for (const text of lines) {
       if (leadsMemory.has(text)) continue;
 
-      const parsed = await aiParseCandidate(text);
+      const parsed = parseCandidate(text);
       const id = leadCounter++;
 
       const lead = {
@@ -178,31 +163,30 @@ app.post("/api/import", upload.single("file"), async (req, res) => {
 
       leadsMemory.set(text, lead);
       leadsStore.set(id, lead);
-      await sendTelegramNotification(lead, text);
       added++;
     }
 
     res.json({ ok: true, added });
   } catch (e) {
+    console.error(e);
     res.status(500).json({ error: "Import error" });
   }
 });
 
-// ================= список =================
+// ========= список =========
 app.get("/api/leads", (req, res) => {
   res.json([...leadsStore.values()]);
 });
 
-// ================= Excel =================
+// ========= Excel =========
 app.get("/api/export", (req, res) => {
-  const data = [...leadsStore.values()];
-  const ws = XLSX.utils.json_to_sheet(data);
+  const ws = XLSX.utils.json_to_sheet([...leadsStore.values()]);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Leads");
-  const buffer = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
 
   res.setHeader("Content-Disposition", "attachment; filename=leads.xlsx");
-  res.send(buffer);
+  res.send(buf);
 });
 
 app.get("/", (req, res) => {
