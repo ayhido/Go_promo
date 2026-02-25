@@ -9,10 +9,14 @@ import { fileURLToPath } from "url";
 const app = express();
 app.use(express.json());
 
-// память для антидублей
+// антидубли
 const leadsMemory = new Map();
 
-// пути для статики
+// база лидов
+const leadsStore = new Map();
+let leadCounter = 1;
+
+// пути статики
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 app.use(express.static(path.join(__dirname, "public")));
@@ -24,7 +28,7 @@ const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 
 // ===============================
-// 🧠 Умный локальный парсер
+// 🧠 локальный парсер
 // ===============================
 async function aiParseCandidate(text) {
   if (!text) return {};
@@ -36,13 +40,9 @@ async function aiParseCandidate(text) {
 
   const words = cleaned.split(/\s+/);
 
-  // имя — первое слово с заглавной
   const nameMatch = cleaned.match(/[А-ЯЁ][а-яё]+/);
-
-  // возраст 16–60
   const ageMatch = cleaned.match(/\b(1[6-9]|[2-5]\d|60)\b/);
 
-  // город — последнее слово не число
   let city = "";
   for (let i = words.length - 1; i >= 0; i--) {
     if (!/\d+/.test(words[i])) {
@@ -78,8 +78,8 @@ async function sendTelegramNotification(lead, text) {
         reply_markup: {
           inline_keyboard: [
             [
-              { text: "✅ Записан", callback_data: "ok" },
-              { text: "❌ Отказ", callback_data: "no" }
+              { text: "✅ Записан", callback_data: `ok:${lead.id}` },
+              { text: "❌ Отказ", callback_data: `no:${lead.id}` }
             ]
           ]
         }
@@ -91,61 +91,7 @@ async function sendTelegramNotification(lead, text) {
 }
 
 // ===============================
-// ✅ Проверка сервера
-// ===============================
-app.get("/", (req, res) => {
-  res.send("GoPromo CRM backend is running 🚀");
-});
-
-// ===============================
-// 🔥 Ручное добавление лида
-// ===============================
-app.post("/api/manual-lead", async (req, res) => {
-  try {
-    const { text } = req.body;
-
-    if (!text) {
-      return res.status(400).json({ error: "No text provided" });
-    }
-
-    // 🔥 антидубль
-    if (leadsMemory.has(text)) {
-      return res.json({
-        ok: true,
-        duplicate: true,
-        lead: leadsMemory.get(text)
-      });
-    }
-
-    const parsed = await aiParseCandidate(text);
-
-    const lead = {
-      name: parsed.name || "Неизвестно",
-      age: parsed.age,
-      city: parsed.city || "",
-      status: parsed.age ? "Заполнен" : "Новый",
-      source: "Avito",
-      lastMessage: text,
-    };
-
-    // сохраняем в память
-    leadsMemory.set(text, lead);
-
-    // уведомление в Telegram
-    await sendTelegramNotification(lead, text);
-
-    res.json({ ok: true, lead });
-  } catch (e) {
-    console.error("Manual lead error:", e);
-    res.status(500).json({ error: "Server error" });
-  }
-});
-
-// ===============================
-// 🚀 запуск сервера
-// ===============================
-// ===============================
-// 🤖 Telegram webhook (кнопки)
+// 🤖 Telegram webhook
 // ===============================
 app.post("/telegram-webhook", async (req, res) => {
   try {
@@ -156,17 +102,25 @@ app.post("/telegram-webhook", async (req, res) => {
       const chatId = update.callback_query.message.chat.id;
       const messageId = update.callback_query.message.message_id;
 
+      const [action, leadIdStr] = data.split(":");
+      const leadId = Number(leadIdStr);
+
       let text = "Статус обновлён";
 
-      if (data === "ok") {
-        text = "✅ Кандидат записан";
+      const lead = leadsStore.get(leadId);
+
+      if (lead) {
+        if (action === "ok") {
+          lead.status = "Записан";
+          text = `✅ ${lead.name} записан`;
+        }
+
+        if (action === "no") {
+          lead.status = "Отказ";
+          text = `❌ ${lead.name} отказ`;
+        }
       }
 
-      if (data === "no") {
-        text = "❌ Кандидат отказ";
-      }
-
-      // обновляем сообщение
       await axios.post(
         `https://api.telegram.org/bot${TG_TOKEN}/editMessageText`,
         {
@@ -183,6 +137,78 @@ app.post("/telegram-webhook", async (req, res) => {
     res.json({ ok: true });
   }
 });
+
+// ===============================
+// ✅ проверка сервера
+// ===============================
+app.get("/", (req, res) => {
+  res.send("GoPromo CRM backend is running 🚀");
+});
+
+// ===============================
+// 🔥 ручное добавление лида
+// ===============================
+app.post("/api/manual-lead", async (req, res) => {
+  try {
+    const { text } = req.body;
+
+    if (!text) {
+      return res.status(400).json({ error: "No text provided" });
+    }
+
+    // антидубль
+    if (leadsMemory.has(text)) {
+      return res.json({
+        ok: true,
+        duplicate: true,
+        lead: leadsMemory.get(text)
+      });
+    }
+
+    const parsed = await aiParseCandidate(text);
+
+    const id = leadCounter++;
+
+    const lead = {
+      id,
+      name: parsed.name || "Неизвестно",
+      age: parsed.age,
+      city: parsed.city || "",
+      status: parsed.age ? "Заполнен" : "Новый",
+      source: "Avito",
+      lastMessage: text,
+      createdAt: Date.now()
+    };
+
+    leadsMemory.set(text, lead);
+    leadsStore.set(id, lead);
+
+    await sendTelegramNotification(lead, text);
+
+    res.json({ ok: true, lead });
+  } catch (e) {
+    console.error("Manual lead error:", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+// ===============================
+// 📊 статистика
+// ===============================
+app.get("/api/stats", (req, res) => {
+  const stats = {
+    total: leadsStore.size,
+    zapisano: [...leadsStore.values()].filter(l => l.status === "Записан").length,
+    otkaz: [...leadsStore.values()].filter(l => l.status === "Отказ").length,
+    new: [...leadsStore.values()].filter(l => l.status === "Новый").length
+  };
+
+  res.json(stats);
+});
+
+// ===============================
+// 🚀 запуск
+// ===============================
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
