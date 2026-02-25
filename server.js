@@ -144,6 +144,45 @@ app.post("/api/manual-lead", async (req, res) => {
 // ===============================
 // 🚀 запуск сервера
 // ===============================
+// ===============================
+// 🤖 Telegram webhook (кнопки)
+// ===============================
+app.post("/telegram-webhook", async (req, res) => {
+  try {
+    const update = req.body;
+
+    if (update.callback_query) {
+      const data = update.callback_query.data;
+      const chatId = update.callback_query.message.chat.id;
+      const messageId = update.callback_query.message.message_id;
+
+      let text = "Статус обновлён";
+
+      if (data === "ok") {
+        text = "✅ Кандидат записан";
+      }
+
+      if (data === "no") {
+        text = "❌ Кандидат отказ";
+      }
+
+      // обновляем сообщение
+      await axios.post(
+        `https://api.telegram.org/bot${TG_TOKEN}/editMessageText`,
+        {
+          chat_id: chatId,
+          message_id: messageId,
+          text
+        }
+      );
+    }
+
+    res.json({ ok: true });
+  } catch (e) {
+    console.error("Telegram webhook error:", e.message);
+    res.json({ ok: true });
+  }
+});
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log("Server started on port", PORT);
