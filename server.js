@@ -3,16 +3,36 @@ const openai = new OpenAI({
   apiKey: process.env.OPENAI_API_KEY,
 });
 async function aiParseCandidate(text) {
-  const prompt = `
-Извлеки данные кандидата из сообщения.
+  if (!text) return {};
 
-Верни JSON:
-{
- "name": "",
- "age": number | null,
- "city": ""
+  const cleaned = text
+    .replace(/\n/g, " ")
+    .replace(/,/g, " ")
+    .trim();
+
+  const words = cleaned.split(/\s+/);
+
+  // имя — первое слово с буквы
+  const nameMatch = cleaned.match(/[А-ЯЁ][а-яё]+/);
+
+  // возраст 16–60
+  const ageMatch = cleaned.match(/\b(1[6-9]|[2-5]\d|60)\b/);
+
+  // город — последнее слово не число
+  let city = "";
+  for (let i = words.length - 1; i >= 0; i--) {
+    if (!/\d+/.test(words[i])) {
+      city = words[i];
+      break;
+    }
+  }
+
+  return {
+    name: nameMatch ? nameMatch[0] : "Неизвестно",
+    age: ageMatch ? parseInt(ageMatch[0]) : null,
+    city: city || ""
+  };
 }
-
 Сообщение:
 ${text}
 `;
