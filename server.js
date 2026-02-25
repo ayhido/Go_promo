@@ -98,17 +98,38 @@ app.post("/api/manual-lead", async (req, res) => {
       return res.status(400).json({ error: "No text provided" });
     }
 
+    // 🔥 антидубль по тексту
+    if (leadsMemory.has(text)) {
+      return res.json({
+        ok: true,
+        duplicate: true,
+        lead: leadsMemory.get(text)
+      });
+    }
+
     const parsed = await aiParseCandidate(text);
 
-// 🔥 антидубль по тексту
-if (leadsMemory.has(text)) {
-  return res.json leadsMemory.set(text, lead);({
-    ok: true,
-    duplicate: true,
-    lead: leadsMemory.get(text)
-  });
-}
+    const lead = {
+      name: parsed.name || "Неизвестно",
+      age: parsed.age,
+      city: parsed.city || "",
+      status: parsed.age ? "Заполнен" : "Новый",
+      source: "Avito",
+      lastMessage: text,
+    };
 
+    // ✅ сохраняем в память
+    leadsMemory.set(text, lead);
+
+    // 📲 уведомление в Telegram
+    await sendTelegramNotification(lead, text);
+
+    res.json({ ok: true, lead });
+  } catch (e) {
+    console.error("Manual lead error:", e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
     const lead = {
       name: parsed.name || "Неизвестно",
       age: parsed.age,
