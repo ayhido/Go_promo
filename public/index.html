@@ -1,38 +1,57 @@
 <!DOCTYPE html>
 <html lang="ru">
 <head>
-  <meta charset="UTF-8" />
-  <title>GoPromo — Быстрое добавление</title>
-  <style>
-    body { font-family: Arial; max-width: 600px; margin: 40px auto; }
-    textarea { width: 100%; height: 120px; }
-    button { padding: 12px 20px; font-size: 16px; cursor: pointer; }
-    .result { margin-top: 15px; }
-  </style>
+<meta charset="UTF-8">
+<title>GoPromo CRM</title>
+<style>
+body{font-family:Arial;max-width:1100px;margin:20px auto}
+.col{width:32%;display:inline-block;vertical-align:top;background:#f4f4f4;padding:10px;border-radius:10px}
+.card{background:white;padding:8px;margin:6px 0;border-radius:8px}
+</style>
 </head>
 <body>
-  <h2>🚀 Добавить из Авито</h2>
 
-  <textarea id="text" placeholder="Вставь сообщение кандидата..."></textarea>
-  <br /><br />
-  <button onclick="send()">Добавить</button>
+<h2>🚀 GoPromo CRM</h2>
 
-  <div class="result" id="result"></div>
+<textarea id="text" placeholder="Вставь отклик..." style="width:100%;height:80px"></textarea><br><br>
+<button onclick="addLead()">Добавить</button>
+<button onclick="loadLeads()">Обновить</button>
+<button onclick="window.location='/api/export'">📤 Excel</button>
 
-  <script>
-    async function send() {
-      const text = document.getElementById("text").value;
+<h3>📊 Канбан</h3>
 
-      const res = await fetch("/api/manual-lead", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text })
-      });
+<div class="col"><h4>Новый</h4><div id="new"></div></div>
+<div class="col"><h4>Записан</h4><div id="ok"></div></div>
+<div class="col"><h4>Отказ</h4><div id="no"></div></div>
 
-      const data = await res.json();
-      document.getElementById("result").innerText =
-        "Готово: " + JSON.stringify(data.lead);
-    }
-  </script>
+<script>
+async function addLead(){
+  const text=document.getElementById("text").value;
+  await fetch("/api/manual-lead",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
+  loadLeads();
+}
+
+async function loadLeads(){
+  const res=await fetch("/api/leads");
+  const data=await res.json();
+
+  new.innerHTML="";
+  ok.innerHTML="";
+  no.innerHTML="";
+
+  data.forEach(l=>{
+    const div=document.createElement("div");
+    div.className="card";
+    div.innerText=`${l.name} (${l.age||"—"}) ${l.city}`;
+
+    if(l.status==="Записан") ok.appendChild(div);
+    else if(l.status==="Отказ") no.appendChild(div);
+    else new.appendChild(div);
+  });
+}
+
+loadLeads();
+</script>
+
 </body>
 </html>
