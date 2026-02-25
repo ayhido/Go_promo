@@ -18,6 +18,10 @@ body{font-family:Arial;max-width:1100px;margin:20px auto}
 <button onclick="loadLeads()">Обновить</button>
 <button onclick="window.location='/api/export'">📤 Excel</button>
 
+<br><br>
+<input type="file" id="file">
+<button onclick="importFile()">📥 Импорт</button>
+
 <h3>📊 Канбан</h3>
 
 <div class="col"><h4>Новый</h4><div id="new"></div></div>
@@ -28,6 +32,14 @@ body{font-family:Arial;max-width:1100px;margin:20px auto}
 async function addLead(){
   const text=document.getElementById("text").value;
   await fetch("/api/manual-lead",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text})});
+  loadLeads();
+}
+
+async function importFile(){
+  const file=document.getElementById("file").files[0];
+  const fd=new FormData();
+  fd.append("file",file);
+  await fetch("/api/import",{method:"POST",body:fd});
   loadLeads();
 }
 
@@ -42,7 +54,7 @@ async function loadLeads(){
   data.forEach(l=>{
     const div=document.createElement("div");
     div.className="card";
-    div.innerText=`${l.name} (${l.age||"—"}) ${l.city}`;
+    div.innerHTML=`${l.name} (${l.age||"—"}) ${l.city}<br>📱 ${l.phone||"—"}`;
 
     if(l.status==="Записан") ok.appendChild(div);
     else if(l.status==="Отказ") no.appendChild(div);
