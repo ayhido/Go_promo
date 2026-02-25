@@ -60,22 +60,24 @@ async function sendTelegramNotification(lead, text) {
 
   const message =
     `🔥 Новый отклик с Авито\n\n` +
-    `👤 Имя: ${lead.name || "—"}\n` +
-    `🎂 Возраст: ${lead.age || "—"}\n` +
-    `🏙 Город: ${lead.city || "—"}\n\n` +
-    `💬 Сообщение:\n${text}`;
+    `👤 ${lead.name || "—"} | 🎂 ${lead.age || "—"} | 🏙 ${lead.city || "—"}\n\n` +
+    `💬 ${text}`;
 
-  try {
-    await axios.post(
-      `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
-      {
-        chat_id: TG_CHAT_ID,
-        text: message,
+  await axios.post(
+    `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
+    {
+      chat_id: TG_CHAT_ID,
+      text: message,
+      reply_markup: {
+        inline_keyboard: [
+          [
+            { text: "✅ Записан", callback_data: "ok" },
+            { text: "❌ Отказ", callback_data: "no" }
+          ]
+        ]
       }
-    );
-  } catch (e) {
-    console.error("Telegram error:", e.message);
-  }
+    }
+  );
 }
 
 // ===============================
@@ -97,6 +99,15 @@ app.post("/api/manual-lead", async (req, res) => {
     }
 
     const parsed = await aiParseCandidate(text);
+
+// 🔥 антидубль по тексту
+if (leadsMemory.has(text)) {
+  return res.json leadsMemory.set(text, lead);({
+    ok: true,
+    duplicate: true,
+    lead: leadsMemory.get(text)
+  });
+}
 
     const lead = {
       name: parsed.name || "Неизвестно",
