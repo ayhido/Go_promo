@@ -521,7 +521,9 @@ async function startTelegram() {
 startTelegram();
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => {
+// на сервере HOST=127.0.0.1: снаружи программа доступна только через Caddy с HTTPS
+const HOST = process.env.HOST || undefined;
+app.listen(PORT, HOST, () => {
   console.log("Server started", PORT);
   console.log(`Сайт для клиентов:  http://localhost:${PORT}/`);
   console.log(`Панель диспетчера: http://localhost:${PORT}/dispatcher (нужен пароль)`);

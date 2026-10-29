@@ -95,7 +95,8 @@ export function setupSecurity(app) {
   }
 
   app.disable("x-powered-by");
-  app.set("trust proxy", process.env.TRUST_PROXY === "1");
+  // за Caddy/nginx на этом же сервере: IP клиента и https берём из заголовков локального прокси
+  app.set("trust proxy", process.env.TRUST_PROXY === "1" ? "loopback" : false);
 
   // заголовки безопасности
   app.use((req, res, next) => {

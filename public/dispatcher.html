@@ -80,6 +80,8 @@ label.check input{width:auto}
       <button class="primary" id="send">Отправить</button>
       <button class="mic" id="mic" title="Голосовой ввод (Chrome)">🎙 Голос</button>
       <label class="check"><input type="checkbox" id="speak"> озвучивать</label>
+      <label class="check"><input type="checkbox" id="sound" checked> 🔔 сигналы</label>
+      <button id="soundTest" title="Проверить звук" style="padding:4px 8px">▶</button>
     </div>
     <div class="chips">
       <button data-cmd="сводка">Сводка</button>
@@ -151,6 +153,85 @@ $("skills").innerHTML = CATEGORIES.map(c => `<option${c === "Универсал"
 
 try { $("speak").checked = localStorage.getItem("speak") === "1"; } catch {}
 $("speak").onchange = () => { try { localStorage.setItem("speak", $("speak").checked ? "1" : "0"); } catch {} };
+
+// ===== звуковые сигналы (синтез в браузере, без файлов) =====
+try { $("sound").checked = localStorage.getItem("sound") !== "0"; } catch {}
+$("sound").onchange = () => { try { localStorage.setItem("sound", $("sound").checked ? "1" : "0"); } catch {} };
+
+let audio = null;
+// браузер разрешает звук только после первого клика на странице
+function unlockAudio() {
+  audio ??= new (window.AudioContext || window.webkitAudioContext)();
+  if (audio.state === "suspended") audio.resume();
+}
+addEventListener("pointerdown", unlockAudio, { once: false, passive: true });
+addEventListener("keydown", unlockAudio, { passive: true });
+
+// notes: [частота Гц, начало с, длительность с]
+function tone(notes, { type = "sine", volume = 0.18 } = {}) {
+  if (!$("sound").checked) return;
+  try {
+    unlockAudio();
+    const t0 = audio.currentTime + 0.02;
+    for (const [freq, start, dur] of notes) {
+      const osc = audio.createOscillator(), gain = audio.createGain();
+      osc.type = type;
+      osc.frequency.value = freq;
+      gain.gain.setValueAtTime(0, t0 + start);
+      gain.gain.linearRampToValueAtTime(volume, t0 + start + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + start + dur);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(t0 + start);
+      osc.stop(t0 + start + dur + 0.05);
+    }
+  } catch {}
+}
+
+const SOUNDS = {
+  // новый заказ: два восходящих тона, как у JARVIS
+  newOrder: () => tone([[660, 0, 0.18], [990, 0.16, 0.28]], { type: "triangle" }),
+  // срочный заказ: настойчивая тройная сирена
+  urgent: () => tone([[880, 0, 0.14], [660, 0.16, 0.14], [880, 0.32, 0.14], [660, 0.48, 0.14], [880, 0.64, 0.22]], { type: "square", volume: 0.09 }),
+  // деньги: звон монет
+  money: () => tone([[1318, 0, 0.12], [1760, 0.08, 0.12], [2093, 0.16, 0.35]], { type: "sine", volume: 0.14 }),
+  // отказ / отмена: нисходящий низкий тон
+  lost: () => tone([[440, 0, 0.2], [330, 0.18, 0.35]], { type: "sawtooth", volume: 0.06 }),
+  // что-то требует внимания
+  attention: () => tone([[523, 0, 0.12], [523, 0.2, 0.12]], { type: "square", volume: 0.07 }),
+  // мастер взял заказ
+  taken: () => tone([[784, 0, 0.12]], { type: "triangle", volume: 0.12 })
+};
+$("soundTest").onclick = () => { SOUNDS.newOrder(); setTimeout(SOUNDS.money, 700); };
+
+// сравниваем с прошлым состоянием и озвучиваем события
+let prevOrders = null, prevAttention = 0;
+function announce(orders, attentionCount) {
+  if (prevOrders) {
+    const events = [];
+    for (const o of orders) {
+      const was = prevOrders.get(o.id);
+      if (!was) events.push(o.urgent ? ["urgent", `Срочный заказ номер ${o.id}, ${o.category}`] : ["newOrder", `Новый заказ номер ${o.id}, ${o.category}`]);
+      else if (was !== o.status) {
+        if (o.status === "done") events.push(["money", `Заказ ${o.id} выполнен, ${o.amount ?? 0} рублей`]);
+        else if (o.status === "refused") events.push(["lost", `Отказ по заказу ${o.id}`]);
+        else if (o.status === "cancelled") events.push(["lost", `Заказ ${o.id} отменён`]);
+        else if (o.status === "in_work") events.push(["taken", ""]);
+        else if (o.status === "new" && was === "assigned") events.push(["attention", `Мастер отказался от заказа ${o.id}`]);
+      }
+    }
+    if (!events.length && attentionCount > prevAttention) events.push(["attention", ""]);
+    // один самый важный сигнал, чтобы звуки не наслаивались
+    const order = ["urgent", "newOrder", "money", "attention", "lost", "taken"];
+    events.sort((a, b) => order.indexOf(a[0]) - order.indexOf(b[0]));
+    if (events.length) {
+      SOUNDS[events[0][0]]();
+      const phrase = events.map(e => e[1]).filter(Boolean).join(". ");
+      if (phrase) setTimeout(() => say(phrase), 900);
+    }
+  }
+  prevOrders = new Map(orders.map(o => [o.id, o.status]));
+  prevAttention = attentionCount;
+}
 
 // ===== чат =====
 function addMsg(text, who) {
@@ -326,6 +407,7 @@ async function refresh() {
     fetch("/api/dispatcher/status").then(r => r.json())
   ]);
   masters = ms;
+  announce(orders, st.summary.attention);
 
   $("aiPill").textContent = st.ai ? "ИИ: Claude" : "ИИ: правила (нет ключа)";
   $("aiPill").classList.toggle("on", st.ai);
