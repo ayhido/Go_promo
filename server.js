@@ -449,4 +449,12 @@ async function startTelegram() {
 startTelegram();
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server started", PORT));
+app.listen(PORT, () => console.log("Server started", PORT)).on("error", e => {
+  if (e.code === "EADDRINUSE") {
+    console.log(`\nПОРТ ${PORT} ЗАНЯТ: программа уже запущена в другом окне.`);
+    console.log("Закройте все другие чёрные окна с ботом (или перезагрузите компьютер) и запустите снова.");
+  } else {
+    console.error(e);
+  }
+  process.exit(1);
+});
