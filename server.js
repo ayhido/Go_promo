@@ -1,3 +1,4 @@
+import "./env.js";
 import express from "express";
 import axios from "axios";
 import path from "path";
@@ -418,9 +419,24 @@ const clientBot = createClientBot({
 // изменения статуса из бота (отмена клиентом, назначение) — сразу на панель
 dispatcher.onStatusChange(() => broadcast());
 
-if (TG_TOKEN && process.env.TG_POLLING === "1") {
-  startPolling(clientBot, handleTelegramUpdate);
+// при старте проверяем токен и пишем понятный статус бота
+async function startTelegram() {
+  if (!TG_TOKEN) {
+    console.log("Telegram: бот выключен — не задан TG_TOKEN (см. .env.example)");
+    return;
+  }
+  const me = await clientBot.api("getMe", {});
+  if (!me) {
+    console.log("Telegram: ОШИБКА — токен не подходит или нет доступа к api.telegram.org");
+    return;
+  }
+  console.log(`Telegram: бот @${me.username} подключён`);
+  if (!TG_CHAT_ID) console.log("Telegram: TG_CHAT_ID не задан — уведомления операторам отправляться не будут");
+  if (process.env.TG_POLLING === "1") startPolling(clientBot, handleTelegramUpdate);
+  else console.log("Telegram: ждём сообщения через webhook /telegram-webhook (для работы без домена поставьте TG_POLLING=1)");
 }
+
+startTelegram();
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Server started", PORT));

@@ -8,10 +8,16 @@
 
 ## Запуск
 
+1. Установите Node.js 20 или новее (https://nodejs.org).
+2. Скопируйте `.env.example` в `.env` и впишите туда `TG_TOKEN` и `TG_CHAT_ID`. Это работает одинаково на Windows, Mac и Linux.
+3. В папке проекта:
+
 ```bash
 npm install
 npm start            # http://localhost:3000/dispatcher
 ```
+
+В консоли должно появиться `Telegram: бот @имя_бота подключён`. Пока окно с программой открыто, бот отвечает клиентам.
 
 ## Переменные окружения
 
@@ -43,7 +49,7 @@ npm start            # http://localhost:3000/dispatcher
 1. В Telegram откройте @BotFather, выполните `/newbot` и получите токен. Это `TG_TOKEN`.
 2. Узнайте id чата операторов (например, добавьте бота в группу и посмотрите id через @getidsbot). Это `TG_CHAT_ID`.
 3. Запуск одним из двух способов:
-   - **Просто (без домена):** `TG_POLLING=1 TG_TOKEN=... TG_CHAT_ID=... npm start`
+   - **Просто (без домена):** в `.env` укажите `TG_POLLING=1` и запустите `npm start`.
    - **На сервере с HTTPS-доменом:** поставьте webhook:
      `https://api.telegram.org/bot<TG_TOKEN>/setWebhook?url=https://ваш-домен/telegram-webhook&secret_token=<TG_WEBHOOK_SECRET>`
 4. Мастерам: в панели `/dispatcher` укажите у мастера его Telegram chat id. Мастер должен один раз написать боту `/start`, иначе Telegram не даст боту написать ему первым.
