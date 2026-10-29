@@ -427,7 +427,9 @@ async function startTelegram() {
   }
   const me = await clientBot.api("getMe", {});
   if (!me) {
-    console.log("Telegram: ОШИБКА — токен не подходит или нет доступа к api.telegram.org");
+    console.log(clientBot.lastError.network
+      ? "Telegram: ОШИБКА — нет связи с api.telegram.org. Провайдер блокирует доступ к Telegram API: включите VPN на компьютере и запустите заново."
+      : "Telegram: ОШИБКА — Telegram не принял токен. Проверьте TG_TOKEN в файле .env (без пробелов и кавычек).");
     return;
   }
   console.log(`Telegram: бот @${me.username} подключён`);

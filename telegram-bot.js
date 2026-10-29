@@ -50,13 +50,18 @@ const rub = n => `${Number(n || 0).toLocaleString("ru-RU")} ₽`;
 export function createClientBot({ token, apiBase = "https://api.telegram.org", operatorChatId, onOrderCreated }) {
   const enabled = Boolean(token);
 
+  // lastError.network = true — Telegram не ответил (блокировка, нет интернета), иначе Telegram отказал
+  const lastError = { network: false, message: "" };
+
   async function api(method, payload) {
     if (!enabled) return null;
     try {
-      const { data } = await axios.post(`${apiBase}/bot${token}/${method}`, payload, { timeout: 40000 });
+      const { data } = await axios.post(`${apiBase}/bot${token}/${method}`, payload, { timeout: Number(process.env.TG_TIMEOUT || 40000) });
       return data.result;
     } catch (e) {
-      console.error(`TG ${method} error:`, e.response?.data?.description || e.message);
+      lastError.network = !e.response;
+      lastError.message = e.response?.data?.description || e.message;
+      console.error(`TG ${method} error:`, lastError.message);
       return null;
     }
   }
@@ -336,7 +341,8 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
       }
       return false;
     },
-    api
+    api,
+    lastError
   };
 }
 
