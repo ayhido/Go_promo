@@ -6,6 +6,7 @@ import XLSX from "xlsx";
 import multer from "multer";
 import { loadDb } from "./db.js";
 import * as dispatcher from "./dispatcher.js";
+import { createClientBot, startPolling } from "./telegram-bot.js";
 
 const app = express();
 app.use(express.json());
@@ -27,6 +28,7 @@ app.use(express.static(path.join(__dirname, "public")));
 // ===== Telegram =====
 const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
+const TG_API = process.env.TG_API_BASE || "https://api.telegram.org";
 
 // ========= ПАРСЕР =========
 function parseCandidate(text) {
@@ -65,7 +67,7 @@ async function sendTelegramNotification(lead, text) {
 
   try {
     await axios.post(
-      `https://api.telegram.org/bot${TG_TOKEN}/sendMessage`,
+      `${TG_API}/bot${TG_TOKEN}/sendMessage`,
       {
         chat_id: TG_CHAT_ID,
         text:
@@ -84,34 +86,45 @@ async function sendTelegramNotification(lead, text) {
 }
 
 // ========= webhook =========
-app.post("/telegram-webhook", async (req, res) => {
-  try {
-    const q = req.body.callback_query;
-    if (!q) return res.json({ ok: true });
+// один бот на всё: клиенты (личные чаты), кнопки мастеров и кнопки CRM
+async function handleTelegramUpdate(update) {
+  if (await clientBot.handleUpdate(update)) return;
 
-    const [action, idStr] = q.data.split(":");
+  const q = update.callback_query;
+  if (!q) return;
+  clientBot.api("answerCallbackQuery", { callback_query_id: q.id });
 
-    // кнопки мастера под заказом
-    if (action === "o_take" || action === "o_done") {
-      const order = dispatcher.getOrder(idStr);
-      if (order) {
-        dispatcher.setStatus(order, action === "o_take" ? "in_work" : "done", action === "o_take" ? "Мастер взял заказ (Telegram)" : "Мастер закрыл заказ (Telegram)");
-        broadcast();
-      }
-      return res.json({ ok: true });
+  const [action, idStr] = String(q.data || "").split(":");
+
+  // кнопки мастера под заказом
+  if (action === "o_take" || action === "o_done") {
+    const order = dispatcher.getOrder(idStr);
+    const master = order && dispatcher.getMaster(order.masterId);
+    // нажать может только назначенный мастер
+    if (order && master && String(master.tgChatId) === String(q.message?.chat?.id)) {
+      dispatcher.setStatus(order, action === "o_take" ? "in_work" : "done", action === "o_take" ? "Мастер взял заказ (Telegram)" : "Мастер закрыл заказ (Telegram)");
+      broadcast();
     }
-
-    const lead = leadsStore.get(Number(idStr));
-
-    if (lead) {
-      if (action === "ok") lead.status = "Записан";
-      if (action === "no") lead.status = "Отказ";
-    }
-
-    res.json({ ok: true });
-  } catch {
-    res.json({ ok: true });
+    return;
   }
+
+  const lead = leadsStore.get(Number(idStr));
+
+  if (lead) {
+    if (action === "ok") lead.status = "Записан";
+    if (action === "no") lead.status = "Отказ";
+  }
+}
+
+app.post("/telegram-webhook", async (req, res) => {
+  const secret = process.env.TG_WEBHOOK_SECRET;
+  if (secret && req.get("X-Telegram-Bot-Api-Secret-Token") !== secret) return res.sendStatus(403);
+  try {
+    await handleTelegramUpdate(req.body);
+  } catch (e) {
+    console.error("TG update error:", e.message);
+  }
+  res.json({ ok: true });
 });
 
 // ========= добавление =========
@@ -230,7 +243,7 @@ setInterval(broadcast, 60000).unref();
 async function tgSend(chatId, text, buttons) {
   if (!TG_TOKEN || !chatId) return;
   try {
-    await axios.post(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+    await axios.post(`${TG_API}/bot${TG_TOKEN}/sendMessage`, {
       chat_id: chatId,
       text,
       ...(buttons ? { reply_markup: { inline_keyboard: [buttons] } } : {})
@@ -240,12 +253,21 @@ async function tgSend(chatId, text, buttons) {
   }
 }
 
+async function tgPhotos(chatId, photos) {
+  for (const photo of photos || []) {
+    await clientBot.api("sendPhoto", { chat_id: chatId, photo });
+  }
+}
+
 async function notifyOrder(order) {
-  const text = dispatcher.describeOrder(order);
+  const text = dispatcher.describeOrder(order) +
+    (order.source === "telegram" ? `\nИсточник: Telegram-бот${order.tgUsername ? " (@" + order.tgUsername + ")" : ""}` : "");
   await tgSend(TG_CHAT_ID, `🛠 ${text}`);
+  if (TG_CHAT_ID) await tgPhotos(TG_CHAT_ID, order.photos);
 
   const master = order.masterId ? dispatcher.getMaster(order.masterId) : null;
   if (master?.tgChatId) {
+    await tgPhotos(master.tgChatId, order.photos);
     await tgSend(master.tgChatId, `🛠 Вам новый заказ\n\n${text}`, [
       { text: "✅ Беру", callback_data: `o_take:${order.id}` },
       { text: "🏁 Выполнен", callback_data: `o_done:${order.id}` }
@@ -327,11 +349,13 @@ app.get("/api/masters", (req, res) => {
   res.json(dispatcher.listMasters());
 });
 
-app.post("/api/masters", (req, res) => {
+app.post("/api/masters", async (req, res) => {
   try {
     const master = dispatcher.addMaster(req.body);
     // новый мастер может забрать заказы, которые ждали
-    for (const o of dispatcher.listOrders()) if (o.status === "new") dispatcher.autoAssign(o);
+    for (const o of dispatcher.listOrders()) {
+      if (o.status === "new" && dispatcher.autoAssign(o)) await notifyOrder(o);
+    }
     broadcast();
     res.json({ ok: true, master });
   } catch (e) {
@@ -379,6 +403,24 @@ app.get("/dispatcher", (req, res) => {
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public/index.html"));
 });
+
+// ===== клиентский Telegram-бот =====
+const clientBot = createClientBot({
+  token: TG_TOKEN,
+  apiBase: TG_API,
+  operatorChatId: TG_CHAT_ID,
+  onOrderCreated: async order => {
+    broadcast();
+    await notifyOrder(order);
+  }
+});
+
+// изменения статуса из бота (отмена клиентом, назначение) — сразу на панель
+dispatcher.onStatusChange(() => broadcast());
+
+if (TG_TOKEN && process.env.TG_POLLING === "1") {
+  startPolling(clientBot, handleTelegramUpdate);
+}
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Server started", PORT));

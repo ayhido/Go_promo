@@ -30,7 +30,7 @@ export const STATUSES = {
 const ACTIVE = ["new", "assigned", "in_work"];
 
 const CITIES = [
-  ["москв", "Москва"], ["санкт-петербург", "Санкт-Петербург"], ["петербург", "Санкт-Петербург"],
+  ["москв", "Москва"], ["мск", "Москва"], ["санкт-петербург", "Санкт-Петербург"], ["петербург", "Санкт-Петербург"],
   ["питер", "Санкт-Петербург"], ["спб", "Санкт-Петербург"], ["новосибирск", "Новосибирск"],
   ["екатеринбург", "Екатеринбург"], ["екб", "Екатеринбург"], ["казан", "Казань"],
   ["нижн", "Нижний Новгород"], ["челябинск", "Челябинск"], ["самар", "Самара"], ["омск", "Омск"],
@@ -45,18 +45,33 @@ const ATTENTION_MIN = Number(process.env.ATTENTION_MIN || 15);
 const URGENT_SURCHARGE = 1.5;
 
 // ========= разбор заявки правилами (работает без ИИ) =========
-function normalizePhone(raw) {
+export function normalizePhone(raw) {
   let d = (raw || "").replace(/\D/g, "");
   if (d.length === 11 && d[0] === "8") d = "7" + d.slice(1);
   if (d.length === 10) d = "7" + d;
   return d.length >= 10 ? d : "";
 }
 
-function detectCity(lower) {
+// город, если он явно упомянут в тексте, иначе пустая строка
+export function findCity(text) {
+  const lower = String(text || "").toLowerCase();
   for (const [stem, city] of CITIES) {
     if (new RegExp(`(^|[^а-яё])${stem}`).test(lower)) return city;
   }
-  return process.env.DEFAULT_CITY || "";
+  return "";
+}
+
+function detectCity(lower) {
+  return findCity(lower) || process.env.DEFAULT_CITY || "";
+}
+
+// ответ клиента «в спб» → «Санкт-Петербург», неизвестный город — как написан
+export function normalizeCity(text) {
+  const t = String(text || "").trim();
+  const known = findCity(t);
+  if (known) return known;
+  const word = t.replace(/^(г\.|город|в)\s+/i, "").trim();
+  return word ? word[0].toUpperCase() + word.slice(1) : "";
 }
 
 function detectCategory(lower) {
@@ -192,10 +207,15 @@ export function getOrder(id) {
 }
 
 export async function createOrder(text, source = "chat") {
-  const parsed = await parseRequest(text);
+  return createOrderFromParsed(await parseRequest(text), source);
+}
+
+// extra — поля, которые нужны до автоназначения (например, чат клиента для уведомлений)
+export function createOrderFromParsed(parsed, source, extra = {}) {
   const order = {
     id: db().orderCounter++,
     ...parsed,
+    ...extra,
     whenAt: whenToDate(parsed.when),
     source,
     status: "new",
@@ -210,13 +230,41 @@ export async function createOrder(text, source = "chat") {
   return order;
 }
 
+// подписчики на смену статуса (например, Telegram-бот клиента)
+const listeners = [];
+export function onStatusChange(fn) {
+  listeners.push(fn);
+}
+
 export function setStatus(order, status, note) {
   if (!STATUSES[status]) throw new Error("Неизвестный статус");
   order.status = status;
   order.updatedAt = now();
   order.history.push({ at: now(), text: note || `Статус: ${STATUSES[status]}` });
   saveDb();
+  // вызываем сразу: подписчик видит заказ ровно в момент смены статуса
+  for (const fn of listeners) {
+    try {
+      Promise.resolve(fn(order, status, note)).catch(e => console.error("Status listener error:", e.message));
+    } catch (e) {
+      console.error("Status listener error:", e.message);
+    }
+  }
   return order;
+}
+
+// оценка клиента: одна на заказ, рейтинг мастера — среднее всех оценок
+export function rateOrder(order, stars) {
+  if (order.status !== "done" || order.rating) return false;
+  order.rating = stars;
+  order.history.push({ at: now(), text: `Оценка клиента: ${stars}` });
+  const master = order.masterId ? getMaster(order.masterId) : null;
+  if (master) {
+    master.ratings = [...(master.ratings || []), stars];
+    master.rating = Math.round((master.ratings.reduce((a, b) => a + b, 0) / master.ratings.length) * 10) / 10;
+  }
+  saveDb();
+  return true;
 }
 
 export function updateOrder(order, patch) {

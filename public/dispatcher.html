@@ -212,7 +212,7 @@ function orderCard(o, showWhy) {
   const options = `<option value="">— мастер —</option>` +
     masters.filter(x => x.active).map(x => `<option value="${x.id}"${x.id === o.masterId ? " selected" : ""}>${esc(x.name)}${x.city ? " · " + esc(x.city) : ""}</option>`).join("");
   return `<div class="card">
-    <div class="top"><span>№${o.id} ${esc(o.category)}</span>${o.urgent ? '<span class="urgent">СРОЧНО</span>' : ""}</div>
+    <div class="top"><span>№${o.id} ${esc(o.category)}${o.source === "telegram" ? ' <span title="Заявка из Telegram-бота">📱</span>' : ""}${o.photos?.length ? ` 📷${o.photos.length}` : ""}${o.rating ? ` · ${o.rating}⭐` : ""}</span>${o.urgent ? '<span class="urgent">СРОЧНО</span>' : ""}</div>
     <div>${esc(o.description).slice(0, 140)}</div>
     <div class="muted">${esc([o.city, o.address].filter(Boolean).join(", ") || "адрес не указан")}${o.when ? " · " + esc(o.when) : ""}</div>
     <div class="muted">${esc(o.name || "клиент")} ${o.phone ? `<a href="tel:+${esc(o.phone)}" style="color:var(--accent)">+${esc(o.phone)}</a>` : ""} · ${rub(o.estimate_rub)}</div>
