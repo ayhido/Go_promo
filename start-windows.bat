@@ -26,8 +26,14 @@ echo.
 :install
 rem ставим компоненты при каждом запуске: если всё уже на месте, это занимает пару секунд
 echo Проверяю и устанавливаю нужные компоненты (при первом запуске до пары минут)...
-call npm install --no-audit --no-fund
-if errorlevel 1 goto fail
+call npm install --no-audit --no-fund --fetch-retries=5
+if not errorlevel 1 goto checkinstall
+rem основной сервер npm из России часто обрывает связь — пробуем зеркало
+echo.
+echo Основной сервер недоступен, пробую зеркало...
+call npm install --no-audit --no-fund --fetch-retries=5 --registry=https://registry.npmmirror.com
+if errorlevel 1 goto noinstall
+:checkinstall
 if not exist "node_modules\express\package.json" goto noinstall
 
 :run
@@ -53,7 +59,9 @@ exit /b
 
 :noinstall
 echo.
-echo Компоненты не установились. Сделайте скриншот этого окна и пришлите.
+echo Компоненты не установились: нет связи с серверами npm.
+echo Попробуйте включить VPN или раздать интернет с телефона и запустить файл ещё раз.
+echo Если не поможет, сделайте скриншот этого окна и пришлите.
 pause
 exit /b
 
