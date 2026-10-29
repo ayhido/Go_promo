@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Вход в диспетчер</title>
+<style>
+:root{--bg:#05080f;--line:rgba(120,190,255,.2);--text:#e8f1ff;--muted:#8fa3bf;--accent:#3fa9f5;--red:#ff5a5f}
+*{box-sizing:border-box}
+body{margin:0;min-height:100svh;display:grid;place-items:center;background:radial-gradient(900px 600px at 50% 0%,#0f2342,var(--bg) 60%),var(--bg);
+  color:var(--text);font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;padding:16px}
+.box{width:min(380px,100%);text-align:center}
+canvas{width:220px;height:220px;display:block;margin:0 auto -10px}
+h1{font-size:20px;letter-spacing:.12em;text-transform:uppercase;margin:0 0 4px}
+p{color:var(--muted);margin:0 0 20px;font-size:14px}
+form{display:grid;gap:10px}
+input{padding:13px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(5,8,15,.7);color:var(--text);font:inherit;text-align:center;letter-spacing:.08em}
+input:focus{outline:2px solid var(--accent);outline-offset:1px}
+button{padding:13px;border-radius:12px;border:0;background:var(--accent);color:#04121f;font:inherit;font-weight:700;cursor:pointer}
+button:disabled{opacity:.6}
+#err{color:var(--red);min-height:20px;font-size:14px}
+small{color:var(--muted);display:block;margin-top:16px;font-size:12px}
+</style>
+</head>
+<body>
+<div class="box">
+  <canvas id="orb" aria-hidden="true"></canvas>
+  <h1>J.A.R.V.I.S.</h1>
+  <p>Диспетчер «Мастер на час». Доступ только для своих.</p>
+  <form id="f">
+    <input id="pw" type="password" autocomplete="current-password" placeholder="Пароль" autofocus required>
+    <button id="go">Войти</button>
+    <div id="err" role="alert"></div>
+  </form>
+  <small>Пароль — в файле .env, строка ADMIN_PASSWORD.</small>
+</div>
+<script type="module">
+import { createOrb } from "/js/orb.js";
+const orb = createOrb(document.getElementById("orb"), { particles: 1400, rings: 2, scale: 0.9, parallax: false });
+const f = document.getElementById("f"), err = document.getElementById("err"), go = document.getElementById("go");
+document.getElementById("pw").addEventListener("input", () => orb.setState("listen"));
+f.addEventListener("submit", async e => {
+  e.preventDefault();
+  go.disabled = true; err.textContent = ""; orb.setState("think");
+  try {
+    const res = await fetch("/api/login", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password: document.getElementById("pw").value }) });
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.error);
+    orb.setState("speak");
+    const next = new URLSearchParams(location.search).get("next") || "/dispatcher";
+    // только внутренние адреса, чтобы ссылкой нельзя было увести на чужой сайт
+    setTimeout(() => location.href = next.startsWith("/") && !next.startsWith("//") ? next : "/dispatcher", 500);
+  } catch (e2) {
+    orb.setState("idle");
+    err.textContent = e2.message || "Ошибка входа";
+    go.disabled = false;
+  }
+});
+</script>
+</body>
+</html>

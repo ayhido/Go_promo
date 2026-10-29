@@ -25,8 +25,13 @@ export const STATUSES = {
   assigned: "Назначен",
   in_work: "В работе",
   done: "Выполнен",
+  refused: "Отказ",
   cancelled: "Отменён"
 };
+// причины для кнопок и подсказок
+export const REFUSE_REASONS = ["Дорого", "Передумал", "Не дозвонился", "Не смог сделать", "Другое"];
+// доля компании с каждого выполненного заказа, % (0 — не считать)
+const COMMISSION = Number(process.env.COMMISSION_PERCENT || 0);
 const ACTIVE = ["new", "assigned", "in_work"];
 
 const CITIES = [
@@ -279,7 +284,7 @@ export function updateOrder(order, patch) {
 
 // ========= мастера =========
 export function listMasters() {
-  return db().masters.map(m => ({ ...m, load: masterLoad(m.id) }));
+  return db().masters.map(m => ({ ...m, load: masterLoad(m.id), today: masterStats(m.id) }));
 }
 
 export function getMaster(id) {
@@ -321,8 +326,10 @@ const sameCity = (a, b) => !a || !b || a.toLowerCase() === b.toLowerCase();
 
 // лучший свободный мастер: тот же город, есть навык, меньше всего заказов, выше рейтинг
 export function pickMaster(order) {
+  const declined = order.declinedBy || [];
   const candidates = db().masters.filter(m =>
     m.active &&
+    !declined.includes(m.id) &&
     sameCity(m.city, order.city) &&
     (m.skills.includes(order.category) || m.skills.includes(UNIVERSAL))
   );
@@ -344,6 +351,50 @@ export function autoAssign(order) {
   const master = pickMaster(order);
   if (master) assignMaster(order, master);
   return master;
+}
+
+// ===== закрытие заказа: сколько взял мастер, отказ или отмена =====
+// result: done | refused | cancelled; amount — сколько денег взято с клиента
+export function closeOrder(order, { result, amount, reason = "", by = "" }) {
+  if (!["done", "refused", "cancelled"].includes(result)) throw new Error("Неизвестный результат");
+  const digits = amount === undefined || amount === null ? "" : String(amount).replace(/[^\d.,]/g, "").replace(",", ".");
+  const sum = digits === "" ? null : Math.round(Number(digits));
+  if (sum !== null && !(sum >= 0 && sum < 10_000_000)) throw new Error("Сумма указана неверно");
+  if (result === "done" && sum === null) throw new Error("Укажите, сколько взяли с клиента");
+  order.amount = sum ?? 0;
+  order.closeReason = String(reason).slice(0, 200);
+  order.closedAt = now();
+  if (COMMISSION) order.commission = Math.round(order.amount * COMMISSION / 100);
+  const note =
+    result === "done" ? `Выполнен, взято ${rub(order.amount)}` :
+    result === "refused" ? `Отказ${order.closeReason ? ": " + order.closeReason : ""}${order.amount ? `, взято за выезд ${rub(order.amount)}` : ""}` :
+    `Отменён${order.closeReason ? ": " + order.closeReason : ""}`;
+  return setStatus(order, result, by ? `${note} (${by})` : note);
+}
+
+// мастер не может взять заказ — отдаём следующему
+export function declineByMaster(order, master) {
+  order.declinedBy = [...new Set([...(order.declinedBy || []), master.id])];
+  order.masterId = null;
+  setStatus(order, "new", `Мастер ${master.name} отказался от заказа`);
+  return autoAssign(order);
+}
+
+// деньги и заказы мастера за период (по умолчанию — сегодня)
+export function masterStats(masterId, since = startOfDay()) {
+  const mine = db().orders.filter(o => o.masterId === masterId && (o.closedAt || o.updatedAt) >= since);
+  const done = mine.filter(o => o.status === "done");
+  return {
+    done: done.length,
+    refused: mine.filter(o => o.status === "refused").length,
+    amount: mine.filter(o => ["done", "refused"].includes(o.status)).reduce((s, o) => s + (o.amount || 0), 0)
+  };
+}
+
+function startOfDay() {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
 }
 
 // ========= что требует внимания человека =========
@@ -372,15 +423,20 @@ export function attentionList() {
 export function summary() {
   const orders = db().orders;
   const count = s => orders.filter(o => o.status === s).length;
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const doneToday = orders.filter(o => o.status === "done" && o.updatedAt >= today.getTime());
+  const today = startOfDay();
+  const closedToday = orders.filter(o => (o.closedAt || o.updatedAt) >= today);
+  const paid = closedToday.filter(o => ["done", "refused"].includes(o.status));
   return {
     new: count("new"),
     assigned: count("assigned"),
     in_work: count("in_work"),
     done: count("done"),
-    doneToday: doneToday.length,
-    revenueToday: doneToday.reduce((s, o) => s + (Number(o.estimate_rub) || 0), 0),
+    doneToday: closedToday.filter(o => o.status === "done").length,
+    refusedToday: closedToday.filter(o => o.status === "refused").length,
+    cancelledToday: closedToday.filter(o => o.status === "cancelled").length,
+    // реальные деньги: сколько мастера взяли с клиентов (у старых заказов без суммы — ориентир)
+    revenueToday: paid.reduce((s, o) => s + (o.amount ?? (o.status === "done" ? Number(o.estimate_rub) || 0 : 0)), 0),
+    commissionToday: paid.reduce((s, o) => s + (o.commission || 0), 0),
     attention: attentionList().length,
     masters: db().masters.filter(m => m.active).length
   };
@@ -398,6 +454,8 @@ export function describeOrder(o) {
     `Адрес: ${[o.city, o.address].filter(Boolean).join(", ") || "не указан"}`,
     o.when && `Когда: ${o.when}`,
     `Ориентир по цене: ${rub(o.estimate_rub)}`,
+    o.amount !== undefined && ["done", "refused"].includes(o.status) && `Взято с клиента: ${rub(o.amount)}`,
+    o.closeReason && `Причина: ${o.closeReason}`,
     `Мастер: ${m ? `${m.name}${m.phone ? ", +" + m.phone : ""}` : "не назначен"}`
   ].filter(Boolean).join("\n");
 }
@@ -405,7 +463,8 @@ export function describeOrder(o) {
 function summaryText() {
   const s = summary();
   return `Новых заказов: ${s.new}, назначено: ${s.assigned}, в работе: ${s.in_work}. ` +
-    `Сегодня выполнено ${s.doneToday} на ${rub(s.revenueToday)}. ` +
+    `Сегодня выполнено ${s.doneToday}, отказов ${s.refusedToday}, отмен ${s.cancelledToday}. ` +
+    `Касса за сегодня: ${rub(s.revenueToday)}${s.commissionToday ? `, доля компании ${rub(s.commissionToday)}` : ""}. ` +
     `Активных мастеров: ${s.masters}. ` +
     (s.attention ? `Требуют внимания: ${s.attention}.` : "Ничего не горит.");
 }
@@ -421,7 +480,7 @@ function attentionText() {
 function mastersText() {
   const ms = listMasters();
   if (!ms.length) return "Мастеров пока нет. Добавьте их на панели справа, и я начну назначать заказы автоматически.";
-  return ms.map(m => `${m.active ? "🟢" : "⚪"} ${m.name} (${m.city || "любой город"}): ${m.skills.join(", ")}; заказов в работе: ${m.load}; рейтинг ${m.rating}`).join("\n");
+  return ms.map(m => `${m.active ? "🟢" : "⚪"} ${m.name} (${m.city || "любой город"}): ${m.skills.join(", ")}; заказов в работе: ${m.load}; рейтинг ${m.rating}; сегодня: ${m.today.done} выполн., ${m.today.refused} отказ., взял ${rub(m.today.amount)}`).join("\n");
 }
 
 // «назначь 3 на Ивана» — имя в винительном падеже, сравниваем по основе слова
@@ -446,15 +505,24 @@ export async function handleMessage(text) {
     return { reply: o ? describeOrder(o) : `Заказа №${m[1]} нет.`, order: o };
   }
 
-  m = lower.match(/(?:заказ\s*)?№?\s*(\d+)\s+(выполнен|готов|сделан|в работу|в работе|отмен[её]н|отменить)/) ||
-      lower.match(/(отмени|отменить|закрой|закрыть)\s+(?:заказ\s*)?№?\s*(\d+)/);
+  // «5 в работе», «5 выполнен 3500», «5 отказ дорого 500», «отмени 5 клиент передумал»
+  m = lower.match(/(?:заказ\s*)?№?\s*(\d+)\s+(выполнен|готов|сделан|в работу|в работе|отказ|отмен[её]н|отменить)\s*(.*)$/) ||
+      lower.match(/(отмени|отменить)\s+(?:заказ\s*)?№?\s*(\d+)\s*(.*)$/);
   if (m) {
     const [id, word] = /^\d+$/.test(m[1]) ? [m[1], m[2]] : [m[2], m[1]];
+    const rest = (m[3] || "").trim();
     const o = getOrder(id);
     if (!o) return { reply: `Заказа №${id} нет.` };
-    const status = /выполн|готов|сделан|закр/.test(word) ? "done" : /работ/.test(word) ? "in_work" : "cancelled";
-    setStatus(o, status);
-    return { reply: `Заказ №${o.id}: ${STATUSES[status].toLowerCase()}.`, order: o, changed: true };
+    if (/работ/.test(word)) {
+      setStatus(o, "in_work");
+      return { reply: `Заказ №${o.id}: в работе.`, order: o, changed: true };
+    }
+    const sum = (rest.match(/\d[\d\s]*/) || [""])[0].replace(/\s/g, "");
+    const reason = rest.replace(/\d[\d\s]*(₽|руб\S*|р\.?)?/g, "").trim();
+    const result = /выполн|готов|сделан/.test(word) ? "done" : /отказ/.test(word) ? "refused" : "cancelled";
+    if (result === "done" && !sum) return { reply: `Сколько взяли с клиента? Напишите, например: «${o.id} выполнен 3500».` };
+    closeOrder(o, { result, amount: sum || 0, reason, by: "диспетчер" });
+    return { reply: `Заказ №${o.id}: ${STATUSES[result].toLowerCase()}${sum ? `, взято ${rub(sum)}` : ""}${reason ? ` (${reason})` : ""}.`, order: o, changed: true };
   }
 
   m = t.match(/назнач\S*\s+(?:заказ\s*)?№?\s*(\d+)\s+(?:на\s+)?(.+)/i);
@@ -470,7 +538,7 @@ export async function handleMessage(text) {
   if (t.length < 8) {
     return {
       reply: "Пришлите заявку клиента своими словами, например: «Течёт кран на кухне, Москва, ул. Ленина 5 кв 12, завтра после 18, Анна +7 999 123-45-67». " +
-        "Ещё я понимаю: «сводка», «что требует внимания», «мастера», «заказ 3», «3 выполнен», «назначь 3 на Ивана»."
+        "Ещё я понимаю: «сводка», «что требует внимания», «мастера», «заказ 3», «3 выполнен 3500», «3 отказ дорого», «отмени 3», «назначь 3 на Ивана»."
     };
   }
 

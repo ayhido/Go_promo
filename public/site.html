@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Мастер на час</title>
+<meta name="description" content="Мастер на час: сантехника, электрика, сборка мебели, навеска и мелкий ремонт. Приедем сегодня.">
+<style>
+:root{
+  --bg:#05080f;--bg2:#0b1220;--panel:rgba(18,28,46,.6);--line:rgba(120,190,255,.18);
+  --text:#e8f1ff;--muted:#8fa3bf;--accent:#3fa9f5;--accent2:#3fe0d0;--warn:#ff5a5f;
+}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{margin:0;background:radial-gradient(1200px 800px at 70% -10%,#0f2342 0%,var(--bg) 55%) fixed,var(--bg);color:var(--text);
+  font-family:"Segoe UI",system-ui,-apple-system,Roboto,Arial,sans-serif;line-height:1.5;overflow-x:hidden}
+a{color:inherit}
+.wrap{max-width:1120px;margin:0 auto;padding:0 16px}
+
+/* ===== шапка ===== */
+nav{position:fixed;inset:0 0 auto 0;z-index:10;backdrop-filter:blur(10px);background:rgba(5,8,15,.55);border-bottom:1px solid var(--line)}
+nav .wrap{display:flex;align-items:center;gap:16px;height:60px}
+.logo{font-weight:700;letter-spacing:.04em;display:flex;align-items:center;gap:8px}
+.logo i{width:10px;height:10px;border-radius:50%;background:var(--accent);box-shadow:0 0 12px var(--accent)}
+nav .links{margin-left:auto;display:flex;gap:18px;font-size:14px;color:var(--muted)}
+nav .links a{text-decoration:none}
+nav .links a:hover{color:var(--text)}
+@media(max-width:640px){nav .links .opt{display:none}}
+
+/* ===== первый экран ===== */
+.hero{position:relative;min-height:100svh;display:grid;align-items:center}
+#orb{position:absolute;inset:0;width:100%;height:100%;display:block}
+.hero .wrap{position:relative;z-index:2;display:grid;grid-template-columns:1.1fr .9fr;gap:24px;padding-top:80px;pointer-events:none}
+.hero .copy{pointer-events:auto}
+@media(max-width:860px){.hero .wrap{grid-template-columns:1fr;text-align:center;align-content:end;padding-bottom:48px;min-height:100svh}}
+.tag{display:inline-flex;gap:8px;align-items:center;font-size:13px;color:var(--accent2);border:1px solid var(--line);border-radius:999px;padding:4px 12px;background:rgba(63,224,208,.06)}
+.tag b{width:7px;height:7px;border-radius:50%;background:var(--accent2);animation:blink 1.6s infinite}
+@keyframes blink{50%{opacity:.25}}
+h1{font-size:clamp(34px,6vw,64px);line-height:1.05;margin:16px 0 12px;letter-spacing:-.01em}
+h1 span{background:linear-gradient(90deg,var(--accent),var(--accent2));-webkit-background-clip:text;background-clip:text;color:transparent}
+.lead{color:var(--muted);font-size:clamp(16px,2vw,19px);max-width:520px}
+@media(max-width:860px){.lead{margin:0 auto}}
+.cta{display:flex;gap:12px;flex-wrap:wrap;margin-top:24px}
+@media(max-width:860px){.cta{justify-content:center}}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:13px 20px;border-radius:12px;font-weight:600;text-decoration:none;border:1px solid var(--line);background:var(--panel);color:var(--text);cursor:pointer;font:inherit;font-weight:600;transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-2px)}
+.btn.primary{background:linear-gradient(135deg,var(--accent),#2b7fd0);border-color:transparent;box-shadow:0 8px 30px rgba(63,169,245,.35)}
+.stats{display:flex;gap:28px;margin-top:32px;flex-wrap:wrap}
+@media(max-width:860px){.stats{justify-content:center}}
+.stats div{font-size:13px;color:var(--muted)}
+.stats b{display:block;font-size:24px;color:var(--text)}
+.scroll{position:absolute;bottom:18px;left:50%;transform:translateX(-50%);z-index:2;font-size:12px;color:var(--muted)}
+
+/* ===== секции ===== */
+section{padding:88px 0}
+h2{font-size:clamp(26px,4vw,40px);margin:0 0 8px}
+.sub{color:var(--muted);margin:0 0 36px}
+
+/* 3D-карточки услуг: наклоняются за курсором */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:16px;perspective:900px}
+.card{position:relative;padding:22px;border-radius:18px;background:linear-gradient(160deg,rgba(30,48,78,.75),rgba(12,20,34,.75));border:1px solid var(--line);
+  transform-style:preserve-3d;transition:transform .2s ease-out,box-shadow .2s;will-change:transform}
+.card:hover{box-shadow:0 20px 50px rgba(63,169,245,.18)}
+.card .ico{font-size:34px;transform:translateZ(40px);display:inline-block}
+.card h3{margin:10px 0 6px;font-size:18px;transform:translateZ(28px)}
+.card p{margin:0;color:var(--muted);font-size:14px;transform:translateZ(18px)}
+.card .price{margin-top:14px;font-weight:700;color:var(--accent2);transform:translateZ(24px)}
+.card::after{content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;
+  background:radial-gradient(400px circle at var(--mx,50%) var(--my,50%),rgba(63,169,245,.16),transparent 40%)}
+
+.steps{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;counter-reset:s}
+@media(max-width:860px){.steps{grid-template-columns:1fr 1fr}}
+@media(max-width:480px){.steps{grid-template-columns:1fr}}
+.step{padding:20px;border-radius:16px;border:1px solid var(--line);background:var(--panel)}
+.step::before{counter-increment:s;content:"0" counter(s);font-size:28px;font-weight:800;color:var(--accent);opacity:.8}
+.step h3{margin:6px 0;font-size:17px}
+.step p{margin:0;color:var(--muted);font-size:14px}
+
+/* ===== форма ===== */
+.order{display:grid;grid-template-columns:1fr 1fr;gap:28px;align-items:start}
+@media(max-width:860px){.order{grid-template-columns:1fr}}
+form{display:grid;gap:12px;padding:24px;border-radius:20px;border:1px solid var(--line);background:var(--panel);backdrop-filter:blur(6px)}
+label{font-size:13px;color:var(--muted);display:grid;gap:6px}
+input,textarea{width:100%;padding:12px 14px;border-radius:12px;border:1px solid var(--line);background:rgba(5,8,15,.7);color:var(--text);font:inherit}
+input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:1px}
+textarea{min-height:100px;resize:vertical}
+.hp{position:absolute;left:-9999px;width:1px;height:1px;overflow:hidden}
+.msg{padding:14px;border-radius:12px;display:none}
+.msg.ok{display:block;background:rgba(63,224,208,.1);border:1px solid rgba(63,224,208,.4)}
+.msg.err{display:block;background:rgba(255,90,95,.1);border:1px solid rgba(255,90,95,.4)}
+.alt{display:grid;gap:12px}
+.alt .box{padding:20px;border-radius:16px;border:1px solid var(--line);background:var(--panel)}
+.alt .box h3{margin:0 0 6px}
+.alt .box p{margin:0 0 12px;color:var(--muted);font-size:14px}
+footer{padding:32px 0;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+footer .wrap{display:flex;gap:16px;flex-wrap:wrap;justify-content:space-between}
+.reveal{opacity:0;transform:translateY(24px);transition:opacity .7s,transform .7s}
+.reveal.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none}.card{transition:none}}
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <div class="logo"><i></i><span id="brand">Мастер на час</span></div>
+    <div class="links">
+      <a class="opt" href="#services">Услуги</a>
+      <a class="opt" href="#how">Как работаем</a>
+      <a href="#order">Заявка</a>
+      <a id="navPhone" href="#" hidden></a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <canvas id="orb" aria-hidden="true"></canvas>
+  <div class="wrap">
+    <div class="copy">
+      <span class="tag"><b></b> Диспетчер на связи 24/7</span>
+      <h1>Любой мелкий ремонт —<br><span>за один визит</span></h1>
+      <p class="lead">Сантехника, электрика, сборка мебели, навеска и мелкий ремонт<span id="leadCity"></span>. Оставьте заявку, и ИИ-диспетчер за минуту подберёт свободного мастера рядом с вами.</p>
+      <div class="cta">
+        <a class="btn primary" href="#order">🛠 Вызвать мастера</a>
+        <a class="btn" id="tgBtn" href="#" target="_blank" rel="noopener" hidden>✈️ Написать в Telegram</a>
+      </div>
+      <div class="stats">
+        <div><b>от 1 200 ₽</b>за работу</div>
+        <div><b>~15 мин</b>подбор мастера</div>
+        <div><b>5★</b>оценка после каждого заказа</div>
+      </div>
+    </div>
+  </div>
+  <div class="scroll">↓ листайте</div>
+</header>
+
+<section id="services">
+  <div class="wrap">
+    <h2 class="reveal">Что мы делаем</h2>
+    <p class="sub reveal">Цена за работу, без материалов. Точную стоимость мастер назовёт на месте до начала работ.</p>
+    <div class="grid" id="services-grid"></div>
+  </div>
+</section>
+
+<section id="how">
+  <div class="wrap">
+    <h2 class="reveal">Как это работает</h2>
+    <p class="sub reveal">Без звонков в колл-центр и ожидания на линии.</p>
+    <div class="steps">
+      <div class="step reveal"><h3>Заявка</h3><p>Опишите задачу на сайте или в Telegram, можно с фото.</p></div>
+      <div class="step reveal"><h3>Подбор</h3><p>Диспетчер оценит работу и назначит свободного мастера в вашем районе.</p></div>
+      <div class="step reveal"><h3>Визит</h3><p>Мастер позвонит, приедет в удобное время и всё сделает.</p></div>
+      <div class="step reveal"><h3>Оценка</h3><p>Вы ставите оценку, и лучшие мастера получают больше заказов.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="order">
+  <div class="wrap order">
+    <div>
+      <h2 class="reveal">Вызвать мастера</h2>
+      <p class="sub reveal">Заполните форму, и мы перезвоним в течение 15 минут.</p>
+      <form id="form" class="reveal" novalidate>
+        <label>Что нужно сделать *
+          <textarea name="text" required maxlength="1000" placeholder="Например: течёт смеситель на кухне, нужно заменить"></textarea>
+        </label>
+        <label>Адрес
+          <input name="address" maxlength="300" placeholder="Улица, дом, квартира">
+        </label>
+        <label>Ваше имя
+          <input name="name" maxlength="60" autocomplete="given-name" placeholder="Как к вам обращаться">
+        </label>
+        <label>Телефон *
+          <input name="phone" required type="tel" autocomplete="tel" placeholder="+7 999 123-45-67">
+        </label>
+        <div class="hp" aria-hidden="true"><label>Сайт <input name="website" tabindex="-1" autocomplete="off"></label></div>
+        <button class="btn primary" type="submit" id="submit">Отправить заявку</button>
+        <div class="msg" id="msg" role="status"></div>
+        <small style="color:var(--muted)">Нажимая кнопку, вы соглашаетесь на обработку контактных данных для выполнения заказа.</small>
+      </form>
+    </div>
+    <div class="alt">
+      <div class="box reveal" id="tgBox" hidden>
+        <h3>✈️ Удобнее в Telegram?</h3>
+        <p>Бот примет заявку, пришлёт контакты мастера и сообщит, когда работа будет выполнена.</p>
+        <a class="btn" id="tgBtn2" href="#" target="_blank" rel="noopener">Открыть бота</a>
+      </div>
+      <div class="box reveal" id="phoneBox" hidden>
+        <h3>📞 Позвонить</h3>
+        <p>Если срочно: течёт, искрит или захлопнулась дверь.</p>
+        <a class="btn" id="phoneBtn" href="#"></a>
+      </div>
+      <div class="box reveal">
+        <h3>🛡 Гарантия</h3>
+        <p>Если что-то пошло не так, оператор свяжется с вами после оценки и всё исправим.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span id="copy">© Мастер на час</span>
+    <span>Работаем без выходных</span>
+  </div>
+</footer>
+
+<script type="module">
+import { createOrb } from "/js/orb.js";
+
+const ICONS = { "Сантехника": "🚰", "Электрика": "💡", "Сборка мебели": "🪑", "Навеска и монтаж": "🖼", "Двери и замки": "🚪", "Установка техники": "🧺", "Отделка": "🧱", "Мелкий ремонт": "🔧" };
+const TEXT = {
+  "Сантехника": "Краны, смесители, унитазы, засоры, подключение бойлера.",
+  "Электрика": "Розетки, выключатели, люстры, автоматы, поиск неисправности.",
+  "Сборка мебели": "Шкафы, кровати, кухни, комоды — соберём и выставим по уровню.",
+  "Навеска и монтаж": "Телевизоры, карнизы, полки, зеркала, картины.",
+  "Двери и замки": "Замена замков, ручек, петель, регулировка дверей.",
+  "Установка техники": "Стиральные и посудомоечные машины, плиты, вытяжки.",
+  "Отделка": "Плитка, обои, покраска, плинтусы, герметик.",
+  "Мелкий ремонт": "Всё, что нужно починить по дому за пару часов."
+};
+const rub = n => Number(n).toLocaleString("ru-RU") + " ₽";
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+
+const orb = createOrb(document.getElementById("orb"), { particles: 2600, scale: window.innerWidth < 860 ? 0.8 : 1.15 });
+
+// сфера смещается вправо на широком экране, на телефоне — вверх
+function placeOrb() {
+  const c = document.getElementById("orb");
+  if (window.innerWidth >= 860) Object.assign(c.style, { left: "35%", width: "65%", top: "0", height: "100%" });
+  else Object.assign(c.style, { left: "0", width: "100%", top: "0", height: "55%" });
+}
+placeOrb();
+addEventListener("resize", placeOrb);
+
+// ===== данные компании =====
+fetch("/api/public/info").then(r => r.json()).then(info => {
+  document.title = info.name + (info.city ? " — " + info.city : "");
+  document.getElementById("brand").textContent = info.name;
+  document.getElementById("copy").textContent = `© ${new Date().getFullYear()} ${info.name}${info.city ? ", " + info.city : ""}`;
+  if (info.city) document.getElementById("leadCity").textContent = " в городе " + info.city;
+  if (info.bot) {
+    const url = "https://t.me/" + info.bot;
+    for (const id of ["tgBtn", "tgBtn2"]) { const a = document.getElementById(id); a.href = url; a.hidden = false; }
+    document.getElementById("tgBox").hidden = false;
+  }
+  if (info.phone) {
+    const tel = "tel:" + info.phone.replace(/[^\d+]/g, "");
+    const nav = document.getElementById("navPhone");
+    nav.href = tel; nav.textContent = info.phone; nav.hidden = false;
+    const b = document.getElementById("phoneBtn");
+    b.href = tel; b.textContent = info.phone;
+    document.getElementById("phoneBox").hidden = false;
+  }
+  document.getElementById("services-grid").innerHTML = info.prices.map(p => `
+    <div class="card reveal">
+      <span class="ico">${ICONS[p.name] || "🔧"}</span>
+      <h3>${esc(p.name)}</h3>
+      <p>${esc(TEXT[p.name] || "")}</p>
+      <div class="price">от ${rub(p.from)}</div>
+    </div>`).join("");
+  setupTilt();
+  observeReveal();
+});
+
+// ===== наклон карточек за курсором =====
+function setupTilt() {
+  if (matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+  document.querySelectorAll(".card").forEach(card => {
+    card.addEventListener("pointermove", e => {
+      const r = card.getBoundingClientRect();
+      const x = (e.clientX - r.left) / r.width, y = (e.clientY - r.top) / r.height;
+      card.style.transform = `rotateY(${(x - 0.5) * 16}deg) rotateX(${(0.5 - y) * 16}deg) translateZ(10px)`;
+      card.style.setProperty("--mx", x * 100 + "%");
+      card.style.setProperty("--my", y * 100 + "%");
+    });
+    card.addEventListener("pointerleave", () => { card.style.transform = ""; });
+  });
+}
+
+// ===== плавное появление блоков =====
+function observeReveal() {
+  const io = new IntersectionObserver(es => es.forEach(e => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.12 });
+  document.querySelectorAll(".reveal:not(.in)").forEach(el => io.observe(el));
+}
+observeReveal();
+
+// ===== отправка заявки =====
+const form = document.getElementById("form");
+const msg = document.getElementById("msg");
+form.addEventListener("focusin", () => orb.setState("listen"));
+form.addEventListener("focusout", () => orb.setState("idle"));
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  const data = Object.fromEntries(new FormData(form));
+  msg.className = "msg";
+  if (!data.text.trim()) { msg.className = "msg err"; msg.textContent = "Опишите, что нужно сделать."; return; }
+  if (data.phone.replace(/\D/g, "").length < 10) { msg.className = "msg err"; msg.textContent = "Укажите телефон полностью."; return; }
+
+  const btn = document.getElementById("submit");
+  btn.disabled = true; btn.textContent = "Отправляем…";
+  orb.setState("think");
+  try {
+    const res = await fetch("/api/public/request", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(data) });
+    const out = await res.json();
+    if (!res.ok) throw new Error(out.error || "Ошибка");
+    orb.setState("speak");
+    setTimeout(() => orb.setState("idle"), 2500);
+    msg.className = "msg ok";
+    msg.innerHTML = out.id
+      ? `✅ Заявка №${out.id} принята! ${esc(out.category)}, ориентировочно от ${rub(out.estimate)}.<br>Мастер перезвонит вам в ближайшее время.`
+      : "✅ Заявка принята! Мы скоро перезвоним.";
+    form.reset();
+  } catch (err) {
+    orb.setState("idle");
+    msg.className = "msg err";
+    msg.textContent = err.message;
+  } finally {
+    btn.disabled = false; btn.textContent = "Отправить заявку";
+  }
+});
+</script>
+</body>
+</html>

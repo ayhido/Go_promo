@@ -1,4 +1,5 @@
 import { execSync } from "child_process";
+import https from "https";
 import { HttpsProxyAgent } from "https-proxy-agent";
 import { SocksProxyAgent } from "socks-proxy-agent";
 
@@ -44,8 +45,10 @@ export function resolveProxy() {
 }
 
 // настройки axios: агент для прокси и отключение встроенной (ненадёжной для https) поддержки прокси
+// keepAlive: соединение с Telegram (и через VPN) открывается один раз, а не на каждое сообщение
 export function proxyAxiosConfig(url) {
-  if (!url) return {};
-  const agent = url.startsWith("socks") ? new SocksProxyAgent(url) : new HttpsProxyAgent(url);
+  if (!url) return { httpsAgent: new https.Agent({ keepAlive: true, maxSockets: 20 }) };
+  const opts = { keepAlive: true, maxSockets: 20 };
+  const agent = url.startsWith("socks") ? new SocksProxyAgent(url, opts) : new HttpsProxyAgent(url, opts);
   return { httpsAgent: agent, httpAgent: agent, proxy: false };
 }

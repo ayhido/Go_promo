@@ -47,7 +47,7 @@ const QUESTIONS = {
 const MAX_TEXT = 1000;
 const rub = n => `${Number(n || 0).toLocaleString("ru-RU")} ₽`;
 
-export function createClientBot({ token, apiBase = "https://api.telegram.org", operatorChatId, onOrderCreated, axiosConfig = {} }) {
+export function createClientBot({ token, apiBase = "https://api.telegram.org", operatorChatId, onOrderCreated, onMasterAction, axiosConfig = {} }) {
   const enabled = Boolean(token);
 
   // lastError.network = true — Telegram не ответил (блокировка, нет интернета), иначе Telegram отказал
@@ -130,7 +130,7 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
 
   // описание задачи разбирается так же, как в диспетчере (Claude или правила)
   async function acceptDescription(chatId, text, s) {
-    await api("sendChatAction", { chat_id: chatId, action: "typing" });
+    api("sendChatAction", { chat_id: chatId, action: "typing" }); // не ждём — это только «печатает…»
     const parsed = await dispatcher.parseRequest(text);
     const keep = s.draft || {};
     s.draft = {
@@ -204,18 +204,18 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
   async function handleMessage(msg) {
     const chatId = msg.chat.id;
     if (msg.chat.type !== "private") return;
-    if (isMasterChat(chatId)) {
-      return send(chatId, "Вы зарегистрированы как мастер: новые заказы будут приходить сюда с кнопками «Беру» и «Выполнен».");
-    }
-
     const s = session(chatId);
     const text = String(msg.text || msg.caption || "").trim().slice(0, MAX_TEXT);
+
+    // мастер отвечает на вопрос о заказе или просит сводку; иначе он может оставить заявку как клиент
+    if (isMasterChat(chatId) && (String(s.step).startsWith("m_") || text === "/master")) return handleMasterMessage(msg);
 
     if (text === "/start" || text.startsWith("/start ") || text === "/menu") {
       reset(chatId);
       return send(chatId,
         "Здравствуйте! Это сервис «мастер на час»: сантехника, электрика, сборка мебели, навеска и мелкий ремонт.\n\n" +
-        "Просто напишите, что случилось, и мы пришлём мастера.", MAIN_KEYBOARD);
+        "Просто напишите, что случилось, и мы пришлём мастера." +
+        (isMasterChat(chatId) ? "\n\nВы мастер: ваши заказы и заработок за сегодня — команда /master." : ""), MAIN_KEYBOARD);
     }
     if (text === BTN.cancel || text === "/cancel") {
       reset(chatId);
@@ -309,6 +309,122 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
     }
   }
 
+
+  // ===================================================================
+  //  Мастер: «Беру» / «Не могу», затем «Выполнен» (+ сумма)
+  //  или «Клиент отказался» (+ причина и сколько взял за выезд)
+  // ===================================================================
+  const masterByChat = chatId => db().masters.find(m => m.tgChatId && String(m.tgChatId) === String(chatId));
+  const rub = n => `${Number(n || 0).toLocaleString("ru-RU")} ₽`;
+
+  function masterKeyboard(order) {
+    if (order.status === "assigned") {
+      return { inline_keyboard: [[{ text: "✅ Беру", callback_data: `m_take:${order.id}` }, { text: "🙅 Не могу", callback_data: `m_decline:${order.id}` }]] };
+    }
+    if (order.status === "in_work") {
+      return { inline_keyboard: [[{ text: "🏁 Выполнен", callback_data: `m_done:${order.id}` }], [{ text: "🚫 Клиент отказался", callback_data: `m_refused:${order.id}` }]] };
+    }
+    return undefined;
+  }
+
+  async function sendOrderToMaster(master, order, text) {
+    if (!master?.tgChatId) return;
+    for (const photo of order.photos || []) await api("sendPhoto", { chat_id: master.tgChatId, photo });
+    return send(master.tgChatId, `🛠 Вам новый заказ\n\n${text}`, masterKeyboard(order));
+  }
+
+  function todayText(master) {
+    const st = dispatcher.masterStats(master.id);
+    return `Сегодня: выполнено ${st.done}, отказов ${st.refused}, взято ${rub(st.amount)}.`;
+  }
+
+  async function handleMasterMessage(msg) {
+    const chatId = msg.chat.id;
+    const master = masterByChat(chatId);
+    const s = session(chatId);
+    const text = String(msg.text || "").trim().slice(0, 200);
+
+    if (s.step === "m_reason" && text) {
+      s.reason = text;
+      s.step = "m_amount";
+      saveDb();
+      return send(chatId, "Сколько взяли с клиента за выезд? Напишите сумму числом, если ничего — 0.");
+    }
+    if (s.step === "m_amount" && text) {
+      const order = dispatcher.getOrder(s.orderId);
+      if (!order || order.masterId !== master.id || order.status !== "in_work") {
+        reset(chatId);
+        return send(chatId, "Этот заказ уже закрыт или передан другому мастеру.");
+      }
+      if (!/\d/.test(text)) return send(chatId, "Напишите сумму цифрами, например 2500.");
+      try {
+        dispatcher.closeOrder(order, { result: s.result, amount: text, reason: s.reason || "", by: master.name });
+      } catch (e) {
+        return send(chatId, e.message);
+      }
+      reset(chatId);
+      await onMasterAction?.(order, "closed");
+      return send(chatId,
+        (s.result === "done" ? `✅ Заказ №${order.id} закрыт: ${rub(order.amount)}.` : `Записал отказ по заказу №${order.id}${order.amount ? `, за выезд ${rub(order.amount)}` : ""}.`) +
+        `\n${todayText(master)}`);
+    }
+
+    // без активного вопроса — сводка по своим заказам
+    const active = db().orders.filter(o => o.masterId === master.id && ["assigned", "in_work"].includes(o.status));
+    await send(chatId, `👷 ${master.name}. ${todayText(master)}\n` +
+      (active.length ? `Заказов в работе: ${active.length}.` : "Активных заказов нет. Новые заказы придут сюда."));
+    for (const o of active) await send(chatId, dispatcher.describeOrder(o), masterKeyboard(o));
+  }
+
+  async function handleMasterCallback(q) {
+    const chatId = q.message?.chat?.id;
+    const [action, id, extra] = String(q.data || "").split(":");
+    await api("answerCallbackQuery", { callback_query_id: q.id });
+    const master = masterByChat(chatId);
+    const order = dispatcher.getOrder(id);
+    // нажимать может только назначенный на заказ мастер
+    if (!master || !order || order.masterId !== master.id) {
+      return send(chatId, "Этот заказ уже передан другому мастеру или закрыт.");
+    }
+    const s = session(chatId);
+
+    if (action === "m_take" || action === "o_take") {
+      if (order.status !== "assigned") return send(chatId, `Заказ №${order.id} уже ${dispatcher.STATUSES[order.status].toLowerCase()}.`);
+      dispatcher.setStatus(order, "in_work", `Мастер ${master.name} взял заказ`);
+      await onMasterAction?.(order, "taken");
+      return send(chatId, `Заказ №${order.id} у вас в работе. Когда закончите — нажмите кнопку:`, masterKeyboard(order));
+    }
+    if (action === "m_decline") {
+      if (order.status !== "assigned") return send(chatId, "Заказ уже в работе — если не получается, нажмите «Клиент отказался» или напишите оператору.");
+      const next = dispatcher.declineByMaster(order, master);
+      await onMasterAction?.(order, next ? "reassigned" : "declined");
+      if (!next) await send(operatorChatId, `⚠️ Заказ №${order.id}: мастер ${master.name} отказался, свободных мастеров нет. Назначьте вручную.`);
+      return send(chatId, "Понял, передал заказ другому мастеру.");
+    }
+    if (action === "m_done" || action === "o_done") {
+      if (order.status === "assigned") dispatcher.setStatus(order, "in_work", `Мастер ${master.name} взял заказ`);
+      if (order.status !== "in_work") return send(chatId, `Заказ №${order.id} уже закрыт.`);
+      Object.assign(s, { step: "m_amount", orderId: order.id, result: "done", reason: "" });
+      saveDb();
+      return send(chatId, `Сколько взяли с клиента за заказ №${order.id}? Напишите сумму числом, например 2500.`);
+    }
+    if (action === "m_refused") {
+      if (order.status !== "in_work") return send(chatId, `Заказ №${order.id} не в работе.`);
+      Object.assign(s, { step: "m_reason", orderId: order.id, result: "refused", reason: "" });
+      saveDb();
+      return send(chatId, "Почему клиент отказался? Выберите или напишите своими словами:", {
+        inline_keyboard: dispatcher.REFUSE_REASONS.map((r, i) => [{ text: r, callback_data: `m_reason:${order.id}:${i}` }])
+      });
+    }
+    if (action === "m_reason") {
+      if (s.step !== "m_reason" || s.orderId !== order.id) return;
+      s.reason = dispatcher.REFUSE_REASONS[Number(extra)] || "Другое";
+      s.step = "m_amount";
+      saveDb();
+      return send(chatId, `Причина: ${s.reason}. Сколько взяли с клиента за выезд? Напишите сумму числом, если ничего — 0.`);
+    }
+  }
+
   // ===== уведомления клиенту о ходе заказа =====
   dispatcher.onStatusChange(async (order, status, note) => {
     if (!order.clientChatId || note === "Отменён клиентом") return;
@@ -323,9 +439,12 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
       });
     }
     if (status === "cancelled") return send(order.clientChatId, `Заявка №${order.id} отменена. Если это ошибка — напишите нам.`, MAIN_KEYBOARD);
+    if (status === "refused") return send(order.clientChatId, `Заявка №${order.id} закрыта. Если понадобится мастер — пишите, поможем.`, MAIN_KEYBOARD);
   });
 
   const CLIENT_CALLBACKS = ["c_ok", "c_edit", "c_cancel", "c_cancel_order", "rate"];
+  // o_take / o_done — кнопки из старых сообщений, работают как новые
+  const MASTER_CALLBACKS = ["m_take", "m_decline", "m_done", "m_refused", "m_reason", "o_take", "o_done"];
 
   return {
     enabled,
@@ -335,14 +454,20 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
         await handleMessage(update.message);
         return true;
       }
-      if (update.callback_query && CLIENT_CALLBACKS.includes(String(update.callback_query.data).split(":")[0])) {
+      const action = update.callback_query && String(update.callback_query.data).split(":")[0];
+      if (CLIENT_CALLBACKS.includes(action)) {
         await handleCallback(update.callback_query);
+        return true;
+      }
+      if (MASTER_CALLBACKS.includes(action)) {
+        await handleMasterCallback(update.callback_query);
         return true;
       }
       return false;
     },
     api,
-    lastError
+    lastError,
+    sendOrderToMaster
   };
 }
 
@@ -350,6 +475,7 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
 export async function startPolling(bot, handle) {
   await bot.api("deleteWebhook", {});
   let offset = 0;
+  const queues = new Map(); // chatId -> цепочка обработки
   console.log("Telegram: long polling запущен");
   for (;;) {
     const updates = await bot.api("getUpdates", { offset, timeout: 30, allowed_updates: ["message", "callback_query"] });
@@ -357,13 +483,16 @@ export async function startPolling(bot, handle) {
       await new Promise(r => setTimeout(r, 3000));
       continue;
     }
+    // разные чаты обрабатываем параллельно, сообщения одного чата — строго по порядку
     for (const u of updates) {
       offset = u.update_id + 1;
-      try {
-        await handle(u);
-      } catch (e) {
-        console.error("TG update error:", e.message);
-      }
+      const chat = u.message?.chat?.id ?? u.callback_query?.message?.chat?.id ?? "other";
+      const prev = queues.get(chat) || Promise.resolve();
+      const next = prev
+        .then(() => handle(u))
+        .catch(e => console.error("TG update error:", e.message))
+        .finally(() => { if (queues.get(chat) === next) queues.delete(chat); });
+      queues.set(chat, next);
     }
   }
 }

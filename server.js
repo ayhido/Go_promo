@@ -9,9 +9,13 @@ import { loadDb } from "./db.js";
 import * as dispatcher from "./dispatcher.js";
 import { createClientBot, startPolling } from "./telegram-bot.js";
 import { resolveProxy, proxyAxiosConfig } from "./proxy.js";
+import { setupSecurity, rateLimiter } from "./auth.js";
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: "200kb" }));
+
+// вход по паролю и защита — до всех страниц и API
+setupSecurity(app);
 
 // ===== память =====
 const leadsMemory = new Map();
@@ -25,7 +29,9 @@ const upload = multer({ storage: multer.memoryStorage() });
 // ===== статика =====
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(path.join(__dirname, "public"), { index: false }));
+// Three.js для 3D-сцены отдаём со своего сервера, без внешних CDN
+app.use("/vendor/three", express.static(path.join(__dirname, "node_modules/three/build")));
 
 // ===== Telegram =====
 const TG_TOKEN = process.env.TG_TOKEN;
@@ -100,18 +106,6 @@ async function handleTelegramUpdate(update) {
   clientBot.api("answerCallbackQuery", { callback_query_id: q.id });
 
   const [action, idStr] = String(q.data || "").split(":");
-
-  // кнопки мастера под заказом
-  if (action === "o_take" || action === "o_done") {
-    const order = dispatcher.getOrder(idStr);
-    const master = order && dispatcher.getMaster(order.masterId);
-    // нажать может только назначенный мастер
-    if (order && master && String(master.tgChatId) === String(q.message?.chat?.id)) {
-      dispatcher.setStatus(order, action === "o_take" ? "in_work" : "done", action === "o_take" ? "Мастер взял заказ (Telegram)" : "Мастер закрыл заказ (Telegram)");
-      broadcast();
-    }
-    return;
-  }
 
   const lead = leadsStore.get(Number(idStr));
 
@@ -266,18 +260,14 @@ async function tgPhotos(chatId, photos) {
 
 async function notifyOrder(order) {
   const text = dispatcher.describeOrder(order) +
-    (order.source === "telegram" ? `\nИсточник: Telegram-бот${order.tgUsername ? " (@" + order.tgUsername + ")" : ""}` : "");
-  await tgSend(TG_CHAT_ID, `🛠 ${text}`);
-  if (TG_CHAT_ID) await tgPhotos(TG_CHAT_ID, order.photos);
-
+    (order.source === "telegram" ? `\nИсточник: Telegram-бот${order.tgUsername ? " (@" + order.tgUsername + ")" : ""}` : "") +
+    (order.source === "site" ? "\nИсточник: сайт" : "");
   const master = order.masterId ? dispatcher.getMaster(order.masterId) : null;
-  if (master?.tgChatId) {
-    await tgPhotos(master.tgChatId, order.photos);
-    await tgSend(master.tgChatId, `🛠 Вам новый заказ\n\n${text}`, [
-      { text: "✅ Беру", callback_data: `o_take:${order.id}` },
-      { text: "🏁 Выполнен", callback_data: `o_done:${order.id}` }
-    ]);
-  }
+  // оператору и мастеру — одновременно, а не по очереди
+  await Promise.all([
+    tgSend(TG_CHAT_ID, `🛠 ${text}`).then(() => TG_CHAT_ID && tgPhotos(TG_CHAT_ID, order.photos)),
+    clientBot.sendOrderToMaster(master, order, text)
+  ]);
 }
 
 const findOrder = (req, res) => {
@@ -330,8 +320,24 @@ app.patch("/api/orders/:id", (req, res) => {
   const order = findOrder(req, res);
   if (!order) return;
   try {
+    // закрытие (выполнен / отказ / отмена) — только через /close, чтобы не потерять сумму и причину
+    if (req.body.status && !["new", "assigned", "in_work"].includes(req.body.status)) {
+      return res.status(400).json({ error: "Чтобы закрыть заказ, используйте /api/orders/:id/close" });
+    }
     if (req.body.status) dispatcher.setStatus(order, req.body.status);
     dispatcher.updateOrder(order, req.body);
+    broadcast();
+    res.json({ ok: true, order });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/orders/:id/close", (req, res) => {
+  const order = findOrder(req, res);
+  if (!order) return;
+  try {
+    dispatcher.closeOrder(order, { result: req.body.result, amount: req.body.amount, reason: req.body.reason, by: "диспетчер" });
     broadcast();
     res.json({ ok: true, order });
   } catch (e) {
@@ -387,7 +393,10 @@ app.get("/api/orders/export", (req, res) => {
     Адрес: o.address,
     Когда: o.when,
     Срочно: o.urgent ? "да" : "",
-    "Цена, ₽": o.estimate_rub,
+    "Ориентир, ₽": o.estimate_rub,
+    "Взято, ₽": o.amount ?? "",
+    "Доля компании, ₽": o.commission ?? "",
+    "Причина": o.closeReason || "",
     Мастер: dispatcher.getMaster(o.masterId)?.name || "",
     Описание: o.description,
     Создан: new Date(o.createdAt).toLocaleString("ru-RU")
@@ -405,8 +414,65 @@ app.get("/dispatcher", (req, res) => {
   res.sendFile(path.join(__dirname, "public/dispatcher.html"));
 });
 
-app.get("/", (req, res) => {
+app.get("/crm", (req, res) => {
   res.sendFile(path.join(__dirname, "public/index.html"));
+});
+
+app.get("/login", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/login.html"));
+});
+
+// ===== публичный 3D-сайт для клиентов =====
+app.get("/", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/site.html"));
+});
+
+let botUsername = process.env.TG_BOT_USERNAME || "";
+
+app.get("/api/public/info", (req, res) => {
+  res.json({
+    name: process.env.SITE_NAME || "Мастер на час",
+    city: process.env.SITE_CITY || process.env.DEFAULT_CITY || "",
+    phone: process.env.SITE_PHONE || "",
+    bot: botUsername,
+    prices: dispatcher.CATEGORIES.map(c => ({ name: c.name, from: c.base }))
+  });
+});
+
+// заявка с сайта: лимит на IP, ловушка для ботов, проверка длины и телефона
+const siteLimiter = rateLimiter({ max: 5, windowMs: 60 * 60 * 1000 });
+
+app.post("/api/public/request", async (req, res) => {
+  try {
+    const { name = "", phone = "", text = "", address = "", website = "" } = req.body || {};
+    if (website) return res.json({ ok: true }); // скрытое поле заполняют только спам-боты
+    if (siteLimiter.hit(req.ip)) return res.status(429).json({ error: "Слишком много заявок. Позвоните нам или напишите в Telegram." });
+
+    const cleanPhone = dispatcher.normalizePhone(String(phone));
+    const description = String(text).trim().slice(0, 1000);
+    if (!cleanPhone) return res.status(400).json({ error: "Укажите телефон, чтобы мастер мог позвонить" });
+    if (description.length < 5) return res.status(400).json({ error: "Опишите, что нужно сделать" });
+
+    const full = [description, String(address).slice(0, 300)].filter(Boolean).join(", ");
+    const parsed = await dispatcher.parseRequest(full);
+    const order = dispatcher.createOrderFromParsed(
+      {
+        ...parsed,
+        name: String(name).trim().slice(0, 60) || parsed.name,
+        phone: cleanPhone,
+        city: parsed.city || process.env.SITE_CITY || process.env.DEFAULT_CITY || "",
+        address: String(address).trim().slice(0, 300) || parsed.address,
+        description
+      },
+      "site"
+    );
+    broadcast();
+    await notifyOrder(order);
+    res.json({ ok: true, id: order.id, estimate: order.estimate_rub, category: order.category });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Не получилось отправить заявку, попробуйте ещё раз" });
+  }
 });
 
 // ===== клиентский Telegram-бот =====
@@ -415,6 +481,11 @@ const clientBot = createClientBot({
   apiBase: TG_API,
   axiosConfig: tgAxios,
   operatorChatId: TG_CHAT_ID,
+  // мастер нажал кнопку: обновить панель, при передаче — отправить заказ новому мастеру
+  onMasterAction: async (order, kind) => {
+    broadcast();
+    if (kind === "reassigned") await notifyOrder(order);
+  },
   onOrderCreated: async order => {
     broadcast();
     await notifyOrder(order);
@@ -440,6 +511,7 @@ async function startTelegram() {
       : "Telegram: ОШИБКА — Telegram не принял токен. Проверьте TG_TOKEN в файле .env (без пробелов и кавычек).");
     return;
   }
+  botUsername = me.username;
   console.log(`Telegram: бот @${me.username} подключён`);
   if (!TG_CHAT_ID) console.log("Telegram: TG_CHAT_ID не задан — уведомления операторам отправляться не будут");
   if (process.env.TG_POLLING === "1") startPolling(clientBot, handleTelegramUpdate);
@@ -449,7 +521,11 @@ async function startTelegram() {
 startTelegram();
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log("Server started", PORT)).on("error", e => {
+app.listen(PORT, () => {
+  console.log("Server started", PORT);
+  console.log(`Сайт для клиентов:  http://localhost:${PORT}/`);
+  console.log(`Панель диспетчера: http://localhost:${PORT}/dispatcher (нужен пароль)`);
+}).on("error", e => {
   if (e.code === "EADDRINUSE") {
     console.log(`\nПОРТ ${PORT} ЗАНЯТ: программа уже запущена в другом окне.`);
     console.log("Закройте все другие чёрные окна с ботом (или перезагрузите компьютер) и запустите снова.");

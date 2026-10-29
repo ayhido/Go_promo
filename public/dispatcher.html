@@ -25,9 +25,8 @@ h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 .msg{padding:8px 10px;border-radius:10px;white-space:pre-wrap;font-size:14px;line-height:1.4;max-width:92%}
 .msg.me{align-self:flex-end;background:#1f6feb33;border:1px solid #1f6feb66}
 .msg.bot{align-self:flex-start;background:var(--card);border:1px solid var(--line)}
-#orb{width:56px;height:56px;border-radius:50%;margin:0 auto 10px;background:radial-gradient(circle at 35% 35%,#9bd7ff,#3fa9f5 45%,#0b3d66 75%);box-shadow:0 0 18px #3fa9f566;transition:transform .15s,box-shadow .15s}
-#orb.listen{animation:pulse 1s infinite;box-shadow:0 0 28px #f8514988}
-#orb.speak{animation:pulse .6s infinite}
+#orb{width:100%;height:190px;display:block;margin:-6px 0 4px;cursor:pointer}
+#orbLabel{text-align:center;font-size:11px;letter-spacing:.2em;color:var(--muted);margin-bottom:8px;text-transform:uppercase}
 @keyframes pulse{50%{transform:scale(1.12)}}
 .row{display:flex;gap:6px;margin-top:8px}
 textarea,input,select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;font-size:14px;width:100%}
@@ -39,7 +38,10 @@ button.mic.on{background:var(--red);border-color:var(--red)}
 .chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
 .chips button{padding:4px 8px;font-size:12px}
 #attention .card{border-left:3px solid var(--red)}
-.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+.board{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:8px}
+@media(max-width:1400px){.board{grid-template-columns:repeat(3,minmax(0,1fr))}}
+.money{color:var(--green);font-weight:600}
+.lost{color:var(--yellow)}
 @media(max-width:700px){.board{grid-template-columns:1fr}}
 .col h3{font-size:13px;margin:0 0 6px;color:var(--muted)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px;font-size:13px;line-height:1.35}
@@ -60,7 +62,9 @@ label.check input{width:auto}
 
 <header>
   <h1>🛠 Диспетчер «мастер на час»</h1>
-  <a href="/">← CRM кандидатов</a>
+  <a href="/crm">CRM кандидатов</a>
+  <a href="/" target="_blank">Сайт</a>
+  <a href="#" id="logout">Выйти</a>
   <span class="pill" id="aiPill">ИИ: …</span>
   <span class="pill" id="tgPill">Telegram: …</span>
   <div class="stats" id="stats"></div>
@@ -68,7 +72,8 @@ label.check input{width:auto}
 
 <main>
   <section id="chat">
-    <div id="orb" title="Диспетчер"></div>
+    <canvas id="orb" title="Нажмите, чтобы говорить"></canvas>
+    <div id="orbLabel">J.A.R.V.I.S. · в сети</div>
     <div id="log"></div>
     <textarea id="input" placeholder="Вставьте заявку клиента или скажите команду… (Enter — отправить)"></textarea>
     <div class="row">
@@ -94,6 +99,7 @@ label.check input{width:auto}
       <div class="col"><h3>Назначены</h3><div id="col-assigned"></div></div>
       <div class="col"><h3>В работе</h3><div id="col-in_work"></div></div>
       <div class="col"><h3>Выполнены</h3><div id="col-done"></div></div>
+      <div class="col"><h3>Отказ / отмена</h3><div id="col-closed"></div></div>
     </div>
   </section>
 
@@ -111,7 +117,30 @@ label.check input{width:auto}
   </section>
 </main>
 
+<script type="module">
+import { createOrb } from "/js/orb.js";
+window.orb = createOrb(document.getElementById("orb"), { particles: 1600, scale: 0.75 });
+</script>
 <script>
+// ===== состояния сферы: idle / listen / think / speak =====
+const ORB_LABELS = { idle: "в сети", listen: "слушаю", think: "думаю", speak: "говорю" };
+function orbState(s) {
+  window.orb?.setState(s);
+  document.getElementById("orbLabel").textContent = "J.A.R.V.I.S. · " + ORB_LABELS[s];
+}
+
+// сессия истекла — на страницу входа
+const _fetch = window.fetch.bind(window);
+window.fetch = async (...args) => {
+  const res = await _fetch(...args);
+  if (res.status === 401) location.href = "/login?next=/dispatcher";
+  return res;
+};
+document.getElementById("logout").onclick = async e => {
+  e.preventDefault();
+  await fetch("/api/logout", { method: "POST" });
+  location.href = "/login";
+};
 const CATEGORIES = ["Универсал","Сантехника","Электрика","Сборка мебели","Навеска и монтаж","Двери и замки","Установка техники","Отделка","Мелкий ремонт"];
 const $ = id => document.getElementById(id);
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
@@ -137,8 +166,8 @@ function say(text) {
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(text.replace(/[№⚠️🟢⚪]/g, "").slice(0, 400));
   u.lang = "ru-RU";
-  u.onstart = () => $("orb").classList.add("speak");
-  u.onend = () => $("orb").classList.remove("speak");
+  u.onstart = () => orbState("speak");
+  u.onend = () => orbState("idle");
   speechSynthesis.speak(u);
 }
 
@@ -147,6 +176,7 @@ async function send(text) {
   if (!text) return;
   $("input").value = "";
   addMsg(text, "me");
+  orbState("think");
   try {
     const res = await fetch("/api/dispatcher/chat", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text })
@@ -154,8 +184,10 @@ async function send(text) {
     const data = await res.json();
     const reply = data.reply || data.error || "Ошибка";
     addMsg(reply, "bot");
+    orbState("idle");
     say(reply.split("\n")[0]);
   } catch {
+    orbState("idle");
     addMsg("Сервер недоступен.", "bot");
   }
   refresh();
@@ -189,7 +221,7 @@ if (!SR) {
   rec.onend = () => {
     listening = false;
     $("mic").classList.remove("on");
-    $("orb").classList.remove("listen");
+    orbState("idle");
     if (finalText.trim()) send(finalText);
   };
   rec.onerror = () => rec.onend();
@@ -198,32 +230,62 @@ if (!SR) {
     finalText = "";
     listening = true;
     $("mic").classList.add("on");
-    $("orb").classList.add("listen");
+    orbState("listen");
     rec.start();
   };
+  // как у JARVIS: нажали на сферу — она слушает
+  $("orb").onclick = () => $("mic").click();
 }
 
 // ===== заказы =====
-const STATUS_NEXT = { new: null, assigned: ["in_work", "▶ В работу"], in_work: ["done", "✔ Выполнен"] };
+const CLOSED = ["done", "refused", "cancelled"];
 
 function orderCard(o, showWhy) {
   const m = masters.find(x => x.id === o.masterId);
-  const next = STATUS_NEXT[o.status];
   const options = `<option value="">— мастер —</option>` +
     masters.filter(x => x.active).map(x => `<option value="${x.id}"${x.id === o.masterId ? " selected" : ""}>${esc(x.name)}${x.city ? " · " + esc(x.city) : ""}</option>`).join("");
   return `<div class="card">
-    <div class="top"><span>№${o.id} ${esc(o.category)}${o.source === "telegram" ? ' <span title="Заявка из Telegram-бота">📱</span>' : ""}${o.photos?.length ? ` 📷${o.photos.length}` : ""}${o.rating ? ` · ${o.rating}⭐` : ""}</span>${o.urgent ? '<span class="urgent">СРОЧНО</span>' : ""}</div>
+    <div class="top"><span>№${o.id} ${esc(o.category)}${o.source === "telegram" ? ' <span title="Заявка из Telegram-бота">📱</span>' : ""}${o.source === "site" ? ' <span title="Заявка с сайта">🌐</span>' : ""}${o.photos?.length ? ` 📷${o.photos.length}` : ""}${o.rating ? ` · ${o.rating}⭐` : ""}</span>${o.urgent ? '<span class="urgent">СРОЧНО</span>' : ""}</div>
     <div>${esc(o.description).slice(0, 140)}</div>
     <div class="muted">${esc([o.city, o.address].filter(Boolean).join(", ") || "адрес не указан")}${o.when ? " · " + esc(o.when) : ""}</div>
     <div class="muted">${esc(o.name || "клиент")} ${o.phone ? `<a href="tel:+${esc(o.phone)}" style="color:var(--accent)">+${esc(o.phone)}</a>` : ""} · ${rub(o.estimate_rub)}</div>
     ${m ? `<div class="muted">👷 ${esc(m.name)}</div>` : ""}
+    ${o.status === "done" ? `<div class="money">💰 Взято: ${rub(o.amount ?? o.estimate_rub)}</div>` : ""}
+    ${o.status === "refused" ? `<div class="lost">🚫 Отказ${o.closeReason ? ": " + esc(o.closeReason) : ""}${o.amount ? ` · за выезд ${rub(o.amount)}` : ""}</div>` : ""}
+    ${o.status === "cancelled" ? `<div class="lost">✕ Отменён${o.closeReason ? ": " + esc(o.closeReason) : ""}</div>` : ""}
     ${showWhy && o.attention.length ? `<div class="why">${esc(o.attention.join(" · "))}</div>` : ""}
-    ${["done", "cancelled"].includes(o.status) ? "" : `<div class="acts">
+    ${CLOSED.includes(o.status) ? "" : `<div class="acts">
       <select onchange="assign(${o.id}, this.value)">${options}</select>
-      ${next ? `<button onclick="setStatus(${o.id}, '${next[0]}')">${next[1]}</button>` : ""}
-      <button onclick="setStatus(${o.id}, 'cancelled')" title="Отменить">✕</button>
+      ${o.status === "assigned" ? `<button onclick="setStatus(${o.id}, 'in_work')">▶ В работу</button>` : ""}
+      ${["assigned", "in_work"].includes(o.status) ? `<button onclick="closeOrder(${o.id}, 'done')">✔ Выполнен</button>` : ""}
+      ${o.status === "in_work" ? `<button onclick="closeOrder(${o.id}, 'refused')">🚫 Отказ</button>` : ""}
+      <button onclick="closeOrder(${o.id}, 'cancelled')" title="Отменить заказ">✕</button>
     </div>`}
   </div>`;
+}
+
+// закрыть заказ: выполнен (сколько взяли), отказ (причина и выезд), отмена (причина)
+async function closeOrder(id, result) {
+  const body = { result };
+  if (result === "done") {
+    const amount = prompt(`Заказ №${id} выполнен. Сколько взял мастер с клиента, ₽?`);
+    if (amount === null) return;
+    body.amount = amount;
+  } else {
+    const reason = prompt(result === "refused"
+      ? "Почему отказ? (дорого, передумал, не дозвонился, не смог сделать…)"
+      : "Причина отмены?");
+    if (reason === null) return;
+    body.reason = reason;
+    if (result === "refused") {
+      const amount = prompt("Сколько взяли за выезд, ₽? (0 — если ничего)", "0");
+      if (amount === null) return;
+      body.amount = amount;
+    }
+  }
+  const res = await fetch(`/api/orders/${id}/close`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) alert((await res.json()).error);
+  refresh();
 }
 
 async function setStatus(id, status) {
@@ -272,20 +334,29 @@ async function refresh() {
   const s = st.summary;
   $("stats").innerHTML =
     `<span class="stat">Новые <b>${s.new}</b></span><span class="stat">В работе <b>${s.assigned + s.in_work}</b></span>` +
-    `<span class="stat">Сегодня <b>${s.doneToday}</b> · ${rub(s.revenueToday)}</span>` +
+    `<span class="stat">Сегодня ✔ <b>${s.doneToday}</b> · 🚫 ${s.refusedToday} · ✕ ${s.cancelledToday}</span>` +
+    `<span class="stat">Касса <b class="money">${rub(s.revenueToday)}</b>${s.commissionToday ? ` · доля ${rub(s.commissionToday)}` : ""}</span>` +
     `<span class="stat" style="${s.attention ? "border-color:var(--red)" : ""}">⚠️ <b>${s.attention}</b></span>`;
 
   const sorted = [...orders].sort((a, b) => b.urgent - a.urgent || b.createdAt - a.createdAt);
   const attn = sorted.filter(o => o.attention.length);
   $("attention").innerHTML = attn.length ? attn.map(o => orderCard(o, true)).join("") : '<div class="empty">Всё под контролем.</div>';
-  for (const st of ["new", "assigned", "in_work", "done"]) {
-    const list = sorted.filter(o => o.status === st).slice(0, st === "done" ? 20 : 100);
-    $("col-" + st).innerHTML = list.length ? list.map(o => orderCard(o, false)).join("") : '<div class="empty">—</div>';
+  const byClosed = (a, b) => (b.closedAt || b.updatedAt) - (a.closedAt || a.updatedAt);
+  const cols = {
+    new: sorted.filter(o => o.status === "new"),
+    assigned: sorted.filter(o => o.status === "assigned"),
+    in_work: sorted.filter(o => o.status === "in_work"),
+    done: orders.filter(o => o.status === "done").sort(byClosed).slice(0, 20),
+    closed: orders.filter(o => ["refused", "cancelled"].includes(o.status)).sort(byClosed).slice(0, 20)
+  };
+  for (const [col, list] of Object.entries(cols)) {
+    $("col-" + col).innerHTML = list.length ? list.map(o => orderCard(o, false)).join("") : '<div class="empty">—</div>';
   }
 
   $("masters").innerHTML = ms.length ? ms.map(m => `<div class="card">
       <div class="top"><span>${m.active ? "🟢" : "⚪"} ${esc(m.name)}</span><span class="muted">★ ${m.rating}</span></div>
-      <div class="muted">${esc(m.city || "любой город")} · заказов: ${m.load}</div>
+      <div class="muted">${esc(m.city || "любой город")} · в работе: ${m.load}</div>
+      <div>Сегодня: ✔ ${m.today.done} · 🚫 ${m.today.refused} · <span class="money">${rub(m.today.amount)}</span></div>
       <div class="muted">${esc(m.skills.join(", "))}</div>
       <div class="acts"><button onclick="toggleMaster(${m.id}, ${!m.active})">${m.active ? "Выходной" : "На линии"}</button></div>
     </div>`).join("") : '<div class="empty">Добавьте мастеров, и диспетчер начнёт назначать заказы сам.</div>';
