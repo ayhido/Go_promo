@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Диспетчер · GoPromo</title>
+<style>
+:root{--bg:#0d1117;--panel:#161b22;--card:#1f2630;--line:#2d3440;--text:#e6edf3;--muted:#8b949e;--accent:#3fa9f5;--red:#f85149;--green:#3fb950;--yellow:#d29922}
+*{box-sizing:border-box}
+body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial,sans-serif;background:var(--bg);color:var(--text)}
+header{display:flex;align-items:center;gap:12px;padding:12px 16px;border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:18px;margin:0}
+header a{color:var(--accent);text-decoration:none;font-size:14px}
+.pill{font-size:12px;padding:3px 8px;border-radius:999px;background:var(--card);color:var(--muted)}
+.pill.on{color:var(--green)}
+.stats{display:flex;gap:8px;margin-left:auto;flex-wrap:wrap}
+.stat{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:4px 10px;font-size:13px}
+.stat b{font-size:15px}
+main{display:grid;grid-template-columns:minmax(300px,380px) 1fr minmax(260px,320px);gap:12px;padding:12px}
+@media(max-width:1100px){main{grid-template-columns:1fr}}
+section{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;min-width:0}
+h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 10px}
+#chat{display:flex;flex-direction:column;height:calc(100vh - 110px);min-height:420px}
+#log{flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:8px;padding-right:4px}
+.msg{padding:8px 10px;border-radius:10px;white-space:pre-wrap;font-size:14px;line-height:1.4;max-width:92%}
+.msg.me{align-self:flex-end;background:#1f6feb33;border:1px solid #1f6feb66}
+.msg.bot{align-self:flex-start;background:var(--card);border:1px solid var(--line)}
+#orb{width:56px;height:56px;border-radius:50%;margin:0 auto 10px;background:radial-gradient(circle at 35% 35%,#9bd7ff,#3fa9f5 45%,#0b3d66 75%);box-shadow:0 0 18px #3fa9f566;transition:transform .15s,box-shadow .15s}
+#orb.listen{animation:pulse 1s infinite;box-shadow:0 0 28px #f8514988}
+#orb.speak{animation:pulse .6s infinite}
+@keyframes pulse{50%{transform:scale(1.12)}}
+.row{display:flex;gap:6px;margin-top:8px}
+textarea,input,select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;font-size:14px;width:100%}
+textarea{resize:vertical;min-height:64px}
+button{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit;font-size:14px;cursor:pointer;white-space:nowrap}
+button:hover{border-color:var(--accent)}
+button.primary{background:var(--accent);border-color:var(--accent);color:#04121f;font-weight:600}
+button.mic.on{background:var(--red);border-color:var(--red)}
+.chips{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.chips button{padding:4px 8px;font-size:12px}
+#attention .card{border-left:3px solid var(--red)}
+.board{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px}
+@media(max-width:700px){.board{grid-template-columns:1fr}}
+.col h3{font-size:13px;margin:0 0 6px;color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px;margin-bottom:6px;font-size:13px;line-height:1.35}
+.card .top{display:flex;justify-content:space-between;gap:6px;font-weight:600}
+.card .muted{color:var(--muted)}
+.card .why{color:var(--red);font-size:12px;margin-top:4px}
+.card .acts{display:flex;gap:4px;margin-top:6px;flex-wrap:wrap}
+.card .acts button,.card .acts select{padding:3px 6px;font-size:12px;width:auto}
+.card .acts select{flex:1 1 100%;min-width:0;max-width:100%}
+.urgent{color:var(--red)}
+.empty{color:var(--muted);font-size:13px}
+form.master{display:grid;gap:6px;margin-top:8px}
+label.check{display:flex;gap:6px;align-items:center;font-size:13px;color:var(--muted)}
+label.check input{width:auto}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>🛠 Диспетчер «мастер на час»</h1>
+  <a href="/">← CRM кандидатов</a>
+  <span class="pill" id="aiPill">ИИ: …</span>
+  <span class="pill" id="tgPill">Telegram: …</span>
+  <div class="stats" id="stats"></div>
+</header>
+
+<main>
+  <section id="chat">
+    <div id="orb" title="Диспетчер"></div>
+    <div id="log"></div>
+    <textarea id="input" placeholder="Вставьте заявку клиента или скажите команду… (Enter — отправить)"></textarea>
+    <div class="row">
+      <button class="primary" id="send">Отправить</button>
+      <button class="mic" id="mic" title="Голосовой ввод (Chrome)">🎙 Голос</button>
+      <label class="check"><input type="checkbox" id="speak"> озвучивать</label>
+    </div>
+    <div class="chips">
+      <button data-cmd="сводка">Сводка</button>
+      <button data-cmd="что требует внимания">Что горит?</button>
+      <button data-cmd="мастера">Мастера</button>
+    </div>
+  </section>
+
+  <section>
+    <div id="attentionWrap">
+      <h2>⚠️ Требует внимания</h2>
+      <div id="attention"></div>
+    </div>
+    <h2 style="margin-top:14px">Заказы <a href="/api/orders/export" style="color:var(--accent);font-size:12px;text-transform:none">📤 Excel</a></h2>
+    <div class="board">
+      <div class="col"><h3>Новые</h3><div id="col-new"></div></div>
+      <div class="col"><h3>Назначены</h3><div id="col-assigned"></div></div>
+      <div class="col"><h3>В работе</h3><div id="col-in_work"></div></div>
+      <div class="col"><h3>Выполнены</h3><div id="col-done"></div></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>👷 Мастера</h2>
+    <div id="masters"></div>
+    <form class="master" id="masterForm">
+      <input name="name" placeholder="Имя мастера" required>
+      <input name="phone" placeholder="Телефон">
+      <input name="city" placeholder="Город (пусто — любой)">
+      <select name="skills" multiple size="5" id="skills"></select>
+      <input name="tgChatId" placeholder="Telegram chat id (для уведомлений)">
+      <button class="primary">Добавить мастера</button>
+    </form>
+  </section>
+</main>
+
+<script>
+const CATEGORIES = ["Универсал","Сантехника","Электрика","Сборка мебели","Навеска и монтаж","Двери и замки","Установка техники","Отделка","Мелкий ремонт"];
+const $ = id => document.getElementById(id);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;" }[c]));
+const rub = n => Number(n || 0).toLocaleString("ru-RU") + " ₽";
+let masters = [];
+
+$("skills").innerHTML = CATEGORIES.map(c => `<option${c === "Универсал" ? " selected" : ""}>${c}</option>`).join("");
+
+try { $("speak").checked = localStorage.getItem("speak") === "1"; } catch {}
+$("speak").onchange = () => { try { localStorage.setItem("speak", $("speak").checked ? "1" : "0"); } catch {} };
+
+// ===== чат =====
+function addMsg(text, who) {
+  const div = document.createElement("div");
+  div.className = "msg " + who;
+  div.textContent = text;
+  $("log").appendChild(div);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function say(text) {
+  if (!$("speak").checked || !("speechSynthesis" in window)) return;
+  speechSynthesis.cancel();
+  const u = new SpeechSynthesisUtterance(text.replace(/[№⚠️🟢⚪]/g, "").slice(0, 400));
+  u.lang = "ru-RU";
+  u.onstart = () => $("orb").classList.add("speak");
+  u.onend = () => $("orb").classList.remove("speak");
+  speechSynthesis.speak(u);
+}
+
+async function send(text) {
+  text = (text ?? $("input").value).trim();
+  if (!text) return;
+  $("input").value = "";
+  addMsg(text, "me");
+  try {
+    const res = await fetch("/api/dispatcher/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text })
+    });
+    const data = await res.json();
+    const reply = data.reply || data.error || "Ошибка";
+    addMsg(reply, "bot");
+    say(reply.split("\n")[0]);
+  } catch {
+    addMsg("Сервер недоступен.", "bot");
+  }
+  refresh();
+}
+
+$("send").onclick = () => send();
+$("input").addEventListener("keydown", e => {
+  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
+});
+document.querySelectorAll("[data-cmd]").forEach(b => b.onclick = () => send(b.dataset.cmd));
+
+// ===== голос (Web Speech API, лучше всего в Chrome) =====
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+if (!SR) {
+  $("mic").disabled = true;
+  $("mic").title = "Браузер не поддерживает распознавание речи — используйте Chrome";
+} else {
+  const rec = new SR();
+  rec.lang = "ru-RU";
+  rec.interimResults = true;
+  rec.continuous = false;
+  let listening = false, finalText = "";
+  rec.onresult = e => {
+    let interim = "";
+    for (let i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) finalText += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    $("input").value = finalText + interim;
+  };
+  rec.onend = () => {
+    listening = false;
+    $("mic").classList.remove("on");
+    $("orb").classList.remove("listen");
+    if (finalText.trim()) send(finalText);
+  };
+  rec.onerror = () => rec.onend();
+  $("mic").onclick = () => {
+    if (listening) return rec.stop();
+    finalText = "";
+    listening = true;
+    $("mic").classList.add("on");
+    $("orb").classList.add("listen");
+    rec.start();
+  };
+}
+
+// ===== заказы =====
+const STATUS_NEXT = { new: null, assigned: ["in_work", "▶ В работу"], in_work: ["done", "✔ Выполнен"] };
+
+function orderCard(o, showWhy) {
+  const m = masters.find(x => x.id === o.masterId);
+  const next = STATUS_NEXT[o.status];
+  const options = `<option value="">— мастер —</option>` +
+    masters.filter(x => x.active).map(x => `<option value="${x.id}"${x.id === o.masterId ? " selected" : ""}>${esc(x.name)}${x.city ? " · " + esc(x.city) : ""}</option>`).join("");
+  return `<div class="card">
+    <div class="top"><span>№${o.id} ${esc(o.category)}</span>${o.urgent ? '<span class="urgent">СРОЧНО</span>' : ""}</div>
+    <div>${esc(o.description).slice(0, 140)}</div>
+    <div class="muted">${esc([o.city, o.address].filter(Boolean).join(", ") || "адрес не указан")}${o.when ? " · " + esc(o.when) : ""}</div>
+    <div class="muted">${esc(o.name || "клиент")} ${o.phone ? `<a href="tel:+${esc(o.phone)}" style="color:var(--accent)">+${esc(o.phone)}</a>` : ""} · ${rub(o.estimate_rub)}</div>
+    ${m ? `<div class="muted">👷 ${esc(m.name)}</div>` : ""}
+    ${showWhy && o.attention.length ? `<div class="why">${esc(o.attention.join(" · "))}</div>` : ""}
+    ${["done", "cancelled"].includes(o.status) ? "" : `<div class="acts">
+      <select onchange="assign(${o.id}, this.value)">${options}</select>
+      ${next ? `<button onclick="setStatus(${o.id}, '${next[0]}')">${next[1]}</button>` : ""}
+      <button onclick="setStatus(${o.id}, 'cancelled')" title="Отменить">✕</button>
+    </div>`}
+  </div>`;
+}
+
+async function setStatus(id, status) {
+  await fetch(`/api/orders/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status }) });
+  refresh();
+}
+
+async function assign(id, masterId) {
+  if (!masterId) return;
+  const res = await fetch(`/api/orders/${id}/assign`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ masterId: Number(masterId) }) });
+  if (!res.ok) alert((await res.json()).error);
+  refresh();
+}
+
+async function toggleMaster(id, active) {
+  await fetch(`/api/masters/${id}`, { method: "PATCH", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ active }) });
+  refresh();
+}
+
+$("masterForm").onsubmit = async e => {
+  e.preventDefault();
+  const f = e.target;
+  const body = {
+    name: f.name.value, phone: f.phone.value, city: f.city.value, tgChatId: f.tgChatId.value,
+    skills: [...f.skills.selectedOptions].map(o => o.value)
+  };
+  const res = await fetch("/api/masters", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+  if (!res.ok) return alert((await res.json()).error);
+  f.reset();
+  $("skills").value = "Универсал";
+  refresh();
+};
+
+async function refresh() {
+  const [orders, ms, st] = await Promise.all([
+    fetch("/api/orders").then(r => r.json()),
+    fetch("/api/masters").then(r => r.json()),
+    fetch("/api/dispatcher/status").then(r => r.json())
+  ]);
+  masters = ms;
+
+  $("aiPill").textContent = st.ai ? "ИИ: Claude" : "ИИ: правила (нет ключа)";
+  $("aiPill").classList.toggle("on", st.ai);
+  $("tgPill").textContent = st.telegram ? "Telegram: подключён" : "Telegram: выкл";
+  $("tgPill").classList.toggle("on", st.telegram);
+  const s = st.summary;
+  $("stats").innerHTML =
+    `<span class="stat">Новые <b>${s.new}</b></span><span class="stat">В работе <b>${s.assigned + s.in_work}</b></span>` +
+    `<span class="stat">Сегодня <b>${s.doneToday}</b> · ${rub(s.revenueToday)}</span>` +
+    `<span class="stat" style="${s.attention ? "border-color:var(--red)" : ""}">⚠️ <b>${s.attention}</b></span>`;
+
+  const sorted = [...orders].sort((a, b) => b.urgent - a.urgent || b.createdAt - a.createdAt);
+  const attn = sorted.filter(o => o.attention.length);
+  $("attention").innerHTML = attn.length ? attn.map(o => orderCard(o, true)).join("") : '<div class="empty">Всё под контролем.</div>';
+  for (const st of ["new", "assigned", "in_work", "done"]) {
+    const list = sorted.filter(o => o.status === st).slice(0, st === "done" ? 20 : 100);
+    $("col-" + st).innerHTML = list.length ? list.map(o => orderCard(o, false)).join("") : '<div class="empty">—</div>';
+  }
+
+  $("masters").innerHTML = ms.length ? ms.map(m => `<div class="card">
+      <div class="top"><span>${m.active ? "🟢" : "⚪"} ${esc(m.name)}</span><span class="muted">★ ${m.rating}</span></div>
+      <div class="muted">${esc(m.city || "любой город")} · заказов: ${m.load}</div>
+      <div class="muted">${esc(m.skills.join(", "))}</div>
+      <div class="acts"><button onclick="toggleMaster(${m.id}, ${!m.active})">${m.active ? "Выходной" : "На линии"}</button></div>
+    </div>`).join("") : '<div class="empty">Добавьте мастеров, и диспетчер начнёт назначать заказы сам.</div>';
+}
+
+// живые обновления с сервера
+const es = new EventSource("/api/events");
+es.onmessage = () => refresh();
+
+addMsg("Добрый день. Я диспетчер. Вставьте или надиктуйте заявку клиента: я заведу заказ, оценю цену и назначу мастера. Спросите «что горит?», и я скажу, какие заказы ждут вашей реакции.", "bot");
+refresh();
+</script>
+</body>
+</html>
