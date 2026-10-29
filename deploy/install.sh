@@ -22,10 +22,18 @@ ask() { local v; read -r -p "$1" v </dev/tty; printf '%s' "$v"; }
 # ===== настройки =====
 DOMAIN="${DOMAIN:-}"
 if [ -z "$DOMAIN" ]; then
-  DOMAIN=$(ask "Домен сайта [mendusmaster.ru]: ")
-  DOMAIN="${DOMAIN:-mendusmaster.ru}"
+  DOMAIN=$(ask "Адрес системы [app.mendusmaster.ru]: ")
+  DOMAIN="${DOMAIN:-app.mendusmaster.ru}"
 fi
-DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN#www.}"; DOMAIN="${DOMAIN%/}"
+DOMAIN="${DOMAIN#http://}"; DOMAIN="${DOMAIN#https://}"; DOMAIN="${DOMAIN%/}"
+DOMAIN=$(printf '%s' "$DOMAIN" | tr 'A-Z' 'a-z')
+# поддомен (app.mendusmaster.ru) — основной сайт на mendusmaster.ru не трогаем;
+# основной домен (mendusmaster.ru) — дополнительно перенаправляем www на него
+case "$DOMAIN" in
+  www.*) DOMAIN="${DOMAIN#www.}"; SUBDOMAIN=0 ;;
+  *.*.*) SUBDOMAIN=1 ;;
+  *)     SUBDOMAIN=0 ;;
+esac
 
 say "Устанавливаю системные пакеты"
 export DEBIAN_FRONTEND=noninteractive
@@ -114,11 +122,10 @@ $DOMAIN {
 	encode gzip
 	reverse_proxy 127.0.0.1:3000
 }
-
-www.$DOMAIN {
-	redir https://$DOMAIN{uri} permanent
-}
 CADDY
+if [ "$SUBDOMAIN" = 0 ]; then
+  printf '\nwww.%s {\n\tredir https://%s{uri} permanent\n}\n' "$DOMAIN" "$DOMAIN" >> /etc/caddy/Caddyfile
+fi
 systemctl enable caddy >/dev/null
 systemctl reload caddy || systemctl restart caddy
 
@@ -150,8 +157,13 @@ echo " IP этого сервера:      $IP"
 echo " Домен $DOMAIN сейчас указывает на: ${DNS:-никуда}"
 if ! echo " $DNS " | grep -q " $IP "; then
   echo
-  echo " ! Домен ещё не указывает на этот сервер. В настройках домена"
-  echo "   поставьте A-записи для @ и www на $IP и удалите старые."
+  echo " ! Адрес ещё не указывает на этот сервер. В настройках домена"
+  if [ "$SUBDOMAIN" = 1 ]; then
+    echo "   добавьте A-запись: имя ${DOMAIN%%.*}  ->  $IP"
+    echo "   Остальные записи (основной сайт) не трогайте."
+  else
+    echo "   поставьте A-записи для @ и www на $IP и удалите старые."
+  fi
   echo "   HTTPS включится сам в течение часа после смены записей."
 fi
 echo
