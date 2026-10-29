@@ -24,7 +24,8 @@ echo Настройки сохранены в файл .env
 echo.
 
 :install
-if exist "node_modules" goto run
+rem проверяем сами пакеты: папка node_modules могла остаться от прерванной установки
+if exist "node_modules\express\package.json" if exist "node_modules\@anthropic-ai\sdk\package.json" goto run
 echo Устанавливаю нужные компоненты, это займёт минуту...
 call npm install
 if errorlevel 1 goto fail
