@@ -24,11 +24,11 @@ echo Настройки сохранены в файл .env
 echo.
 
 :install
-rem проверяем сами пакеты: папка node_modules могла остаться от прерванной установки
-if exist "node_modules\express\package.json" if exist "node_modules\@anthropic-ai\sdk\package.json" goto run
-echo Устанавливаю нужные компоненты, это займёт минуту...
-call npm install
+rem ставим компоненты при каждом запуске: если всё уже на месте, это занимает пару секунд
+echo Проверяю и устанавливаю нужные компоненты (при первом запуске до пары минут)...
+call npm install --no-audit --no-fund
 if errorlevel 1 goto fail
+if not exist "node_modules\express\package.json" goto noinstall
 
 :run
 echo.
@@ -48,6 +48,12 @@ exit /b
 
 :notoken
 echo Токен не введён. Запустите файл ещё раз.
+pause
+exit /b
+
+:noinstall
+echo.
+echo Компоненты не установились. Сделайте скриншот этого окна и пришлите.
 pause
 exit /b
 
