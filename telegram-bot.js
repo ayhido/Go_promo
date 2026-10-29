@@ -47,7 +47,7 @@ const QUESTIONS = {
 const MAX_TEXT = 1000;
 const rub = n => `${Number(n || 0).toLocaleString("ru-RU")} ₽`;
 
-export function createClientBot({ token, apiBase = "https://api.telegram.org", operatorChatId, onOrderCreated }) {
+export function createClientBot({ token, apiBase = "https://api.telegram.org", operatorChatId, onOrderCreated, axiosConfig = {} }) {
   const enabled = Boolean(token);
 
   // lastError.network = true — Telegram не ответил (блокировка, нет интернета), иначе Telegram отказал
@@ -56,7 +56,7 @@ export function createClientBot({ token, apiBase = "https://api.telegram.org", o
   async function api(method, payload) {
     if (!enabled) return null;
     try {
-      const { data } = await axios.post(`${apiBase}/bot${token}/${method}`, payload, { timeout: Number(process.env.TG_TIMEOUT || 40000) });
+      const { data } = await axios.post(`${apiBase}/bot${token}/${method}`, payload, { timeout: Number(process.env.TG_TIMEOUT || 40000), ...axiosConfig });
       return data.result;
     } catch (e) {
       lastError.network = !e.response;

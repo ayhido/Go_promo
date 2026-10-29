@@ -8,6 +8,7 @@ import multer from "multer";
 import { loadDb } from "./db.js";
 import * as dispatcher from "./dispatcher.js";
 import { createClientBot, startPolling } from "./telegram-bot.js";
+import { resolveProxy, proxyAxiosConfig } from "./proxy.js";
 
 const app = express();
 app.use(express.json());
@@ -30,6 +31,8 @@ app.use(express.static(path.join(__dirname, "public")));
 const TG_TOKEN = process.env.TG_TOKEN;
 const TG_CHAT_ID = process.env.TG_CHAT_ID;
 const TG_API = process.env.TG_API_BASE || "https://api.telegram.org";
+const TG_PROXY = resolveProxy();
+const tgAxios = proxyAxiosConfig(TG_PROXY.url);
 
 // ========= ПАРСЕР =========
 function parseCandidate(text) {
@@ -79,7 +82,8 @@ async function sendTelegramNotification(lead, text) {
           `📱 ${lead.phone || "—"}\n` +
           `🔗 ${tgLink}\n\n` +
           `💬 ${text}`
-      }
+      },
+      tgAxios
     );
   } catch (e) {
     console.error("TG error:", e.message);
@@ -248,7 +252,7 @@ async function tgSend(chatId, text, buttons) {
       chat_id: chatId,
       text,
       ...(buttons ? { reply_markup: { inline_keyboard: [buttons] } } : {})
-    });
+    }, tgAxios);
   } catch (e) {
     console.error("TG error:", e.message);
   }
@@ -409,6 +413,7 @@ app.get("/", (req, res) => {
 const clientBot = createClientBot({
   token: TG_TOKEN,
   apiBase: TG_API,
+  axiosConfig: tgAxios,
   operatorChatId: TG_CHAT_ID,
   onOrderCreated: async order => {
     broadcast();
@@ -425,10 +430,13 @@ async function startTelegram() {
     console.log("Telegram: бот выключен — не задан TG_TOKEN (см. .env.example)");
     return;
   }
+  if (TG_PROXY.url) console.log(`Telegram: работаем через прокси ${TG_PROXY.url.replace(/\/\/[^@/]*@/, "//***@")} (${TG_PROXY.source})`);
   const me = await clientBot.api("getMe", {});
   if (!me) {
     console.log(clientBot.lastError.network
-      ? "Telegram: ОШИБКА — нет связи с api.telegram.org. Провайдер блокирует доступ к Telegram API: включите VPN на компьютере и запустите заново."
+      ? "Telegram: ОШИБКА — нет связи с api.telegram.org. Провайдер блокирует доступ к Telegram API. " +
+        "Если VPN уже включён, укажите в .env его прокси, например TG_PROXY=http://127.0.0.1:10809 (адрес и порт есть в настройках VPN-программы), " +
+        "или включите в VPN режим TUN / «VPN для всех приложений»."
       : "Telegram: ОШИБКА — Telegram не принял токен. Проверьте TG_TOKEN в файле .env (без пробелов и кавычек).");
     return;
   }
