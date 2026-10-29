@@ -4,6 +4,8 @@ import path from "path";
 import { fileURLToPath } from "url";
 import XLSX from "xlsx";
 import multer from "multer";
+import { loadDb } from "./db.js";
+import * as dispatcher from "./dispatcher.js";
 
 const app = express();
 app.use(express.json());
@@ -12,6 +14,8 @@ app.use(express.json());
 const leadsMemory = new Map();
 const leadsStore = new Map();
 let leadCounter = 1;
+
+loadDb();
 
 const upload = multer({ storage: multer.memoryStorage() });
 
@@ -86,6 +90,17 @@ app.post("/telegram-webhook", async (req, res) => {
     if (!q) return res.json({ ok: true });
 
     const [action, idStr] = q.data.split(":");
+
+    // кнопки мастера под заказом
+    if (action === "o_take" || action === "o_done") {
+      const order = dispatcher.getOrder(idStr);
+      if (order) {
+        dispatcher.setStatus(order, action === "o_take" ? "in_work" : "done", action === "o_take" ? "Мастер взял заказ (Telegram)" : "Мастер закрыл заказ (Telegram)");
+        broadcast();
+      }
+      return res.json({ ok: true });
+    }
+
     const lead = leadsStore.get(Number(idStr));
 
     if (lead) {
@@ -187,6 +202,178 @@ app.get("/api/export", (req, res) => {
 
   res.setHeader("Content-Disposition", "attachment; filename=leads.xlsx");
   res.send(buf);
+});
+
+// ===================================================================
+//  ИИ-диспетчер: заказы и мастера
+// ===================================================================
+
+// ===== живые обновления для панели (SSE) =====
+const sseClients = new Set();
+
+app.get("/api/events", (req, res) => {
+  res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.flushHeaders();
+  res.write("retry: 3000\n\n");
+  sseClients.add(res);
+  req.on("close", () => sseClients.delete(res));
+});
+
+function broadcast() {
+  for (const res of sseClients) res.write(`data: ${Date.now()}\n\n`);
+}
+
+// раз в минуту: заказы стареют и могут попасть в «требует внимания»
+setInterval(broadcast, 60000).unref();
+
+// ===== Telegram для заказов =====
+async function tgSend(chatId, text, buttons) {
+  if (!TG_TOKEN || !chatId) return;
+  try {
+    await axios.post(`https://api.telegram.org/bot${TG_TOKEN}/sendMessage`, {
+      chat_id: chatId,
+      text,
+      ...(buttons ? { reply_markup: { inline_keyboard: [buttons] } } : {})
+    });
+  } catch (e) {
+    console.error("TG error:", e.message);
+  }
+}
+
+async function notifyOrder(order) {
+  const text = dispatcher.describeOrder(order);
+  await tgSend(TG_CHAT_ID, `🛠 ${text}`);
+
+  const master = order.masterId ? dispatcher.getMaster(order.masterId) : null;
+  if (master?.tgChatId) {
+    await tgSend(master.tgChatId, `🛠 Вам новый заказ\n\n${text}`, [
+      { text: "✅ Беру", callback_data: `o_take:${order.id}` },
+      { text: "🏁 Выполнен", callback_data: `o_done:${order.id}` }
+    ]);
+  }
+}
+
+const findOrder = (req, res) => {
+  const order = dispatcher.getOrder(req.params.id);
+  if (!order) res.status(404).json({ error: "Заказ не найден" });
+  return order;
+};
+
+// ===== чат с диспетчером: заявка клиента или команда оператора =====
+app.post("/api/dispatcher/chat", async (req, res) => {
+  try {
+    const text = String(req.body.text || "").trim();
+    if (!text) return res.status(400).json({ error: "No text" });
+
+    const result = await dispatcher.handleMessage(text);
+    if (result.changed) broadcast();
+    if (result.notify) await notifyOrder(result.order);
+
+    res.json({ ok: true, reply: result.reply, order: result.order });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.get("/api/dispatcher/status", (req, res) => {
+  res.json({ ai: dispatcher.aiEnabled(), telegram: Boolean(TG_TOKEN && TG_CHAT_ID), summary: dispatcher.summary() });
+});
+
+app.get("/api/orders", (req, res) => {
+  const attention = new Map(dispatcher.attentionList().map(x => [x.order.id, x.reasons]));
+  res.json(dispatcher.listOrders().map(o => ({ ...o, attention: attention.get(o.id) || [] })));
+});
+
+app.post("/api/orders", async (req, res) => {
+  try {
+    const text = String(req.body.text || "").trim();
+    if (!text) return res.status(400).json({ error: "No text" });
+    const order = await dispatcher.createOrder(text, req.body.source || "api");
+    broadcast();
+    await notifyOrder(order);
+    res.json({ ok: true, order });
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.patch("/api/orders/:id", (req, res) => {
+  const order = findOrder(req, res);
+  if (!order) return;
+  try {
+    if (req.body.status) dispatcher.setStatus(order, req.body.status);
+    dispatcher.updateOrder(order, req.body);
+    broadcast();
+    res.json({ ok: true, order });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.post("/api/orders/:id/assign", async (req, res) => {
+  const order = findOrder(req, res);
+  if (!order) return;
+  const master = req.body.masterId ? dispatcher.getMaster(req.body.masterId) : dispatcher.pickMaster(order);
+  if (!master) return res.status(400).json({ error: "Нет подходящего мастера" });
+  dispatcher.assignMaster(order, master);
+  broadcast();
+  await notifyOrder(order);
+  res.json({ ok: true, order });
+});
+
+app.get("/api/masters", (req, res) => {
+  res.json(dispatcher.listMasters());
+});
+
+app.post("/api/masters", (req, res) => {
+  try {
+    const master = dispatcher.addMaster(req.body);
+    // новый мастер может забрать заказы, которые ждали
+    for (const o of dispatcher.listOrders()) if (o.status === "new") dispatcher.autoAssign(o);
+    broadcast();
+    res.json({ ok: true, master });
+  } catch (e) {
+    res.status(400).json({ error: e.message });
+  }
+});
+
+app.patch("/api/masters/:id", (req, res) => {
+  const master = dispatcher.getMaster(req.params.id);
+  if (!master) return res.status(404).json({ error: "Мастер не найден" });
+  dispatcher.updateMaster(master, req.body);
+  broadcast();
+  res.json({ ok: true, master });
+});
+
+app.get("/api/orders/export", (req, res) => {
+  const rows = dispatcher.listOrders().map(o => ({
+    "№": o.id,
+    Статус: dispatcher.STATUSES[o.status],
+    Категория: o.category,
+    Клиент: o.name,
+    Телефон: o.phone,
+    Город: o.city,
+    Адрес: o.address,
+    Когда: o.when,
+    Срочно: o.urgent ? "да" : "",
+    "Цена, ₽": o.estimate_rub,
+    Мастер: dispatcher.getMaster(o.masterId)?.name || "",
+    Описание: o.description,
+    Создан: new Date(o.createdAt).toLocaleString("ru-RU")
+  }));
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, "Orders");
+  const buf = XLSX.write(wb, { type: "buffer", bookType: "xlsx" });
+
+  res.setHeader("Content-Disposition", "attachment; filename=orders.xlsx");
+  res.send(buf);
+});
+
+app.get("/dispatcher", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/dispatcher.html"));
 });
 
 app.get("/", (req, res) => {
