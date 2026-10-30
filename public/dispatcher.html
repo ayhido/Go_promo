@@ -28,7 +28,7 @@ h2{font-size:14px;text-transform:uppercase;letter-spacing:.06em;color:var(--mute
 #orb{width:100%;height:190px;display:block;margin:-6px 0 4px;cursor:pointer}
 #orbLabel{text-align:center;font-size:11px;letter-spacing:.2em;color:var(--muted);margin-bottom:8px;text-transform:uppercase}
 @keyframes pulse{50%{transform:scale(1.12)}}
-.row{display:flex;gap:6px;margin-top:8px}
+.row{display:flex;gap:6px;margin-top:8px;flex-wrap:wrap;align-items:center}
 textarea,input,select{background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px;font:inherit;font-size:14px;width:100%}
 textarea{resize:vertical;min-height:64px}
 button{background:var(--card);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:8px 12px;font:inherit;font-size:14px;cursor:pointer;white-space:nowrap}
@@ -187,11 +187,25 @@ function tone(notes, { type = "sine", volume = 0.18 } = {}) {
   } catch {}
 }
 
+// звук уведомления из файла (public/sounds/notify.mp3) — загружается заранее
+const notifyFile = new Audio("/sounds/notify.mp3");
+notifyFile.preload = "auto";
+function playFile(audioEl, volume = 1) {
+  if (!$("sound").checked) return 0;
+  const a = audioEl.cloneNode();
+  a.volume = volume;
+  // если файл не проигрался (нет файла, браузер запретил) — синтезированный сигнал
+  a.play().catch(() => tone([[660, 0, 0.18], [990, 0.16, 0.28]], { type: "triangle" }));
+  return (audioEl.duration || 1.5) * 1000;
+}
+
+const siren = () => tone([[880, 0, 0.14], [660, 0.16, 0.14], [880, 0.32, 0.14], [660, 0.48, 0.14], [880, 0.64, 0.22]], { type: "square", volume: 0.09 });
+
 const SOUNDS = {
-  // новый заказ: два восходящих тона, как у JARVIS
-  newOrder: () => tone([[660, 0, 0.18], [990, 0.16, 0.28]], { type: "triangle" }),
-  // срочный заказ: настойчивая тройная сирена
-  urgent: () => tone([[880, 0, 0.14], [660, 0.16, 0.14], [880, 0.32, 0.14], [660, 0.48, 0.14], [880, 0.64, 0.22]], { type: "square", volume: 0.09 }),
+  // новый заказ: ваш звук уведомления
+  newOrder: () => playFile(notifyFile),
+  // срочный заказ: уведомление, затем сирена
+  urgent: () => { const ms = playFile(notifyFile); setTimeout(siren, ms || 0); },
   // деньги: звон монет
   money: () => tone([[1318, 0, 0.12], [1760, 0.08, 0.12], [2093, 0.16, 0.35]], { type: "sine", volume: 0.14 }),
   // отказ / отмена: нисходящий низкий тон
@@ -201,7 +215,7 @@ const SOUNDS = {
   // мастер взял заказ
   taken: () => tone([[784, 0, 0.12]], { type: "triangle", volume: 0.12 })
 };
-$("soundTest").onclick = () => { SOUNDS.newOrder(); setTimeout(SOUNDS.money, 700); };
+$("soundTest").onclick = () => SOUNDS.newOrder();
 
 // сравниваем с прошлым состоянием и озвучиваем события
 let prevOrders = null, prevAttention = 0;
@@ -226,7 +240,7 @@ function announce(orders, attentionCount) {
     if (events.length) {
       SOUNDS[events[0][0]]();
       const phrase = events.map(e => e[1]).filter(Boolean).join(". ");
-      if (phrase) setTimeout(() => say(phrase), 900);
+      if (phrase) setTimeout(() => say(phrase), 1600); // после звука уведомления
     }
   }
   prevOrders = new Map(orders.map(o => [o.id, o.status]));
