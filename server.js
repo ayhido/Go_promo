@@ -6,6 +6,8 @@ import XLSX from "xlsx";
 import multer from "multer";
 import { loadDb } from "./db.js";
 import * as dispatcher from "./dispatcher.js";
+import * as tseh from "./reels/workshop.js";
+import { libraryList } from "./reels/writer.js";
 
 const app = express();
 app.use(express.json());
@@ -370,6 +372,40 @@ app.get("/api/orders/export", (req, res) => {
 
   res.setHeader("Content-Disposition", "attachment; filename=orders.xlsx");
   res.send(buf);
+});
+
+// ===================================================================
+//  «Цех»: рилсы на конвейере (сценарий → голос → 3D-сборка → Instagram)
+// ===================================================================
+tseh.initWorkshop();
+app.use("/reels-media", express.static(tseh.MEDIA_DIR));
+
+const tsehClients = new Set();
+app.get("/api/tseh/events", (req, res) => {
+  res.set({ "Content-Type": "text/event-stream", "Cache-Control": "no-cache", Connection: "keep-alive" });
+  res.flushHeaders();
+  res.write("retry: 3000\n\n");
+  tsehClients.add(res);
+  req.on("close", () => tsehClients.delete(res));
+});
+tseh.events.on("change", () => { for (const res of tsehClients) res.write(`data: ${Date.now()}\n\n`); });
+
+const tsehAction = (fn) => async (req, res) => {
+  try { res.json(await fn(req)); } catch (e) { res.status(400).json({ error: e.message }); }
+};
+
+app.get("/api/reels", (req, res) => res.json({ reels: tseh.listReels(), summary: tseh.summary(), settings: tseh.settings() }));
+app.post("/api/reels", tsehAction((req) => tseh.createReels(req.body || {})));
+app.get("/api/reels/library", (req, res) => res.json(libraryList()));
+app.patch("/api/reels/settings", tsehAction((req) => tseh.updateSettings(req.body || {})));
+app.patch("/api/reels/:id", tsehAction((req) => tseh.updateReel(req.params.id, req.body || {})));
+app.post("/api/reels/:id/approve", tsehAction((req) => tseh.approve(req.params.id, req.body || {})));
+app.post("/api/reels/:id/reject", tsehAction((req) => tseh.reject(req.params.id)));
+app.post("/api/reels/:id/redo", tsehAction((req) => tseh.redo(req.params.id, req.body || {})));
+app.post("/api/reels/:id/measure", tsehAction((req) => tseh.measure(req.params.id)));
+
+app.get("/tseh", (req, res) => {
+  res.sendFile(path.join(__dirname, "public/tseh.html"));
 });
 
 app.get("/dispatcher", (req, res) => {
