@@ -6,6 +6,7 @@ import XLSX from "xlsx";
 import multer from "multer";
 import { loadDb } from "./db.js";
 import * as dispatcher from "./dispatcher.js";
+import { mountRadar } from "./radar/index.js";
 
 const app = express();
 app.use(express.json());
@@ -379,6 +380,9 @@ app.get("/dispatcher", (req, res) => {
 app.get("/", (req, res) => {
   res.sendFile(path.join(__dirname, "public/index.html"));
 });
+
+// ===== Радар заработка: /radar =====
+mountRadar(app);
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Server started", PORT));
