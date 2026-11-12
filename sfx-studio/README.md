@@ -7,7 +7,18 @@
 - Python 3.10–3.12 (64-бит), git, [Claude Code](https://claude.com/claude-code)
 - Платный аккаунт Higgsfield
 
-## Установка одной командой (рекомендуется)
+## Без Claude: звуки по маркерам (Windows)
+Claude и интернет для работы не нужны. Установка в PowerShell:
+```
+irm https://raw.githubusercontent.com/ayhido/Go_promo/main/sfx-studio/install_offline.ps1 | iex
+```
+Создаёт `Документы\Mentol\{Chorts, Mem, музыка}` и скрипты в `%USERPROFILE%\sfx-studio`.
+
+1. Звуки — в `Mentol\музыка`, имя начинается с типа: `whoosh_01.wav`, `удар_2.wav` (или подпапки `whoosh\`, `удар\`).
+2. В Resolve ставите маркеры (M), в имени маркера пишете тип: `whoosh`, `удар`, `удар -2` (на 2 кадра раньше).
+3. Запускаете `run_markers.bat` — каждый тип ляжет на свою новую дорожку `SFX <тип>`.
+
+## Установка одной командой (с Claude)
 Ставит Git, Python 3.12, Claude Code, сам проект (в папку `sfx-studio` в домашней папке) и Resolve MCP. DaVinci Resolve Studio нужно установить самому.
 
 **Windows** — PowerShell:
