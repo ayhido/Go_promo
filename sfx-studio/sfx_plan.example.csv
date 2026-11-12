@@ -1,0 +1,3 @@
+file,timecode,track,offset_frames
+001_whoosh.wav,01:00:03:12,SFX Whooshes,0
+002_hit.wav,00:05.5,SFX Hits,-2
