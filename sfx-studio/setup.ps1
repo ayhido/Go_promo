@@ -1,4 +1,4 @@
-# Установка SFX Studio на Windows. Запуск из папки проекта в PowerShell:
+﻿# Установка SFX Studio на Windows. Запуск из папки проекта в PowerShell:
 #   powershell -ExecutionPolicy Bypass -File .\setup.ps1
 $ErrorActionPreference = "Stop"
 Set-Location $PSScriptRoot
@@ -8,11 +8,11 @@ function Need($cmd, $msg) { if (-not (Get-Command $cmd -ErrorAction SilentlyCont
 Need git "Нужен git: https://git-scm.com/download/win"
 Need claude "Нужен Claude Code: https://claude.com/claude-code"
 
-# Python 3.10–3.12, 64-бит (лаунчер py или python)
+# Python 3.10-3.12, 64-бит (лаунчер py или python)
 $PyArgs = @()
 if (Get-Command py -ErrorAction SilentlyContinue) { $PyExe = "py"; $PyArgs = @("-3") }
 elseif (Get-Command python -ErrorAction SilentlyContinue) { $PyExe = "python" }
-else { Write-Host "Нужен Python 3.10–3.12 (64-бит): https://www.python.org/downloads/windows/"; exit 1 }
+else { Write-Host "Нужен Python 3.10-3.12 (64-бит): https://www.python.org/downloads/windows/"; exit 1 }
 
 if (-not (Test-Path "davinci-resolve-mcp")) {
   git clone https://github.com/samuelgursky/davinci-resolve-mcp.git
@@ -28,7 +28,7 @@ Set-Location $Root
 
 $Api = Join-Path $env:PROGRAMDATA "Blackmagic Design\DaVinci Resolve\Support\Developer\Scripting"
 $Lib = "C:\Program Files\Blackmagic Design\DaVinci Resolve\fusionscript.dll"
-if (-not (Test-Path $Lib)) { Write-Host "ВНИМАНИЕ: не найден $Lib — поправьте RESOLVE_SCRIPT_LIB в .mcp.json" }
+if (-not (Test-Path $Lib)) { Write-Host "ВНИМАНИЕ: не найден $Lib - поправьте RESOLVE_SCRIPT_LIB в .mcp.json" }
 
 $Srv = Join-Path $Root "davinci-resolve-mcp"
 $Cfg = [ordered]@{ mcpServers = [ordered]@{

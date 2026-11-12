@@ -1,4 +1,4 @@
-# SFX Studio — установка всего одной командой (Windows 10/11). В PowerShell:
+# SFX Studio - установка всего одной командой (Windows 10/11). В PowerShell:
 #   irm https://raw.githubusercontent.com/ayhido/Go_promo/main/sfx-studio/install.ps1 | iex
 # Ставит: Git, Python 3.12, Claude Code, проект в %USERPROFILE%\sfx-studio, Resolve MCP.
 # DaVinci Resolve Studio (платный) нужно установить самому.
