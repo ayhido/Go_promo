@@ -7,7 +7,20 @@
 - Python 3.10–3.12 (64-бит), git, [Claude Code](https://claude.com/claude-code)
 - Платный аккаунт Higgsfield
 
-## Запуск на Mac (или Linux)
+## Установка одной командой (рекомендуется)
+Ставит Git, Python 3.12, Claude Code, сам проект (в папку `sfx-studio` в домашней папке) и Resolve MCP. DaVinci Resolve Studio нужно установить самому.
+
+**Windows** — PowerShell:
+```
+irm https://raw.githubusercontent.com/ayhido/Go_promo/main/sfx-studio/install.ps1 | iex
+```
+**Mac** — Терминал:
+```
+curl -fsSL https://raw.githubusercontent.com/ayhido/Go_promo/main/sfx-studio/install.sh | bash
+```
+Затем в новом окне: `cd ~/sfx-studio` → `claude` → `/mcp` (войти в Higgsfield) → `/sfx`.
+
+## Ручная установка: Mac (или Linux)
 ```
 cd sfx-studio
 ./setup.sh
