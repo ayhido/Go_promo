@@ -18,6 +18,13 @@ irm https://raw.githubusercontent.com/ayhido/Go_promo/main/sfx-studio/install_of
 2. В Resolve ставите маркеры (M), в имени маркера пишете тип: `whoosh`, `удар`, `удар -2` (на 2 кадра раньше).
 3. Запускаете `run_markers.bat` — каждый тип ляжет на свою новую дорожку `SFX <тип>`.
 
+## Без Claude: Mac
+В Терминале:
+```
+curl -fsSL https://raw.githubusercontent.com/ayhido/Go_promo/main/sfx-studio/install_offline.sh | bash
+```
+Запуск — двойной клик по `~/sfx-studio/run_markers.command`.
+
 ## Установка одной командой (с Claude)
 Ставит Git, Python 3.12, Claude Code, сам проект (в папку `sfx-studio` в домашней папке) и Resolve MCP. DaVinci Resolve Studio нужно установить самому.
 
