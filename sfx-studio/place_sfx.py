@@ -1,12 +1,14 @@
 """Раскладывает готовые SFX-файлы на НОВЫЕ аудиодорожки активного таймлайна DaVinci Resolve.
 
-Работает без интернета и без Claude Code. План берётся из sfx_plan.csv:
+Работает без интернета и без Claude Code.
+Папка звуков: Документы\\Mentol\\музыка (если есть), иначе assets/sfx; можно задать SFX_DIR.
+План sfx_plan.csv кладётся в папку звуков или в папку проекта:
 
     file,timecode,track,offset_frames
     001_whoosh.wav,01:00:03:12,SFX Whooshes,0
     002_hit.wav,00:05.5,SFX Hits,-2
 
-- file           имя файла в assets/sfx (или полный путь)
+- file           имя файла в папке звуков (или полный путь)
 - timecode       HH:MM:SS:FF — таймкод таймлайна (как в Resolve, обычно с 01:00:00:00)
                  или MM:SS(.s) / секунды — от начала таймлайна
 - track          имя новой аудиодорожки (создаётся, существующие не трогаются)
@@ -21,8 +23,25 @@ import os
 import sys
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-PLAN = os.path.join(ROOT, "sfx_plan.csv")
-SFX_DIR = os.path.join(ROOT, "assets", "sfx")
+
+
+def find_sfx_dir():
+    """Папка со звуками: $SFX_DIR, затем Документы\\Mentol\\музыка, затем assets/sfx."""
+    if os.environ.get("SFX_DIR"):
+        return os.environ["SFX_DIR"]
+    home = os.path.expanduser("~")
+    for docs in (os.path.join(home, "Documents"), os.path.join(home, "OneDrive", "Documents"),
+                 os.path.join(home, "OneDrive", "Документы")):
+        d = os.path.join(docs, "Mentol", "музыка")
+        if os.path.isdir(d):
+            return d
+    return os.path.join(ROOT, "assets", "sfx")
+
+
+SFX_DIR = find_sfx_dir()
+# План ищем сначала рядом со звуками, потом в папке проекта
+PLAN = next((p for p in (os.path.join(SFX_DIR, "sfx_plan.csv"), os.path.join(ROOT, "sfx_plan.csv"))
+             if os.path.exists(p)), os.path.join(SFX_DIR, "sfx_plan.csv"))
 
 
 def setup_resolve_env():
@@ -86,6 +105,7 @@ def main():
         if not os.path.exists(r["path"]):
             fail(f"нет файла {r['path']}")
 
+    print(f"Звуки: {SFX_DIR}\nПлан:  {PLAN}")
     setup_resolve_env()
     try:
         import DaVinciResolveScript as dvr
