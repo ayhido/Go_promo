@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self' 'unsafe-inline'">
+  <title>Claude Island</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="island" class="island hidden" data-state="idle">
+    <header class="top">
+      <div class="brand">Claude <span>Code</span></div>
+      <div class="clock"><i class="live"></i><span id="clock"></span></div>
+      <div class="dots">•••</div>
+    </header>
+
+    <section class="main">
+      <div class="left">
+        <div class="project"><b class="spark">✳</b><span id="project">проект</span></div>
+        <div class="timer" id="timer">0:00</div>
+        <div class="status" id="status">Думаю…</div>
+      </div>
+      <div class="bubble" id="bubble"></div>
+    </section>
+
+    <section class="progress">
+      <canvas id="bar"></canvas>
+      <div class="labels">
+        <span data-i="0">Чтение</span>
+        <span data-i="1">Правка</span>
+        <span data-i="2">Тесты</span>
+        <span data-i="3">Готово</span>
+      </div>
+    </section>
+  </div>
+  <script src="app.js"></script>
+</body>
+</html>

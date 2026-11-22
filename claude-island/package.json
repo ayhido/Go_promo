@@ -1,0 +1,16 @@
+{
+  "name": "claude-island",
+  "version": "1.0.0",
+  "description": "Плашка-«чёлка» для Claude Code на Windows: этапы работы, таймер и живой ползунок",
+  "main": "main.js",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "demo": "electron . --demo",
+    "install-hooks": "node install-hooks.js",
+    "uninstall-hooks": "node install-hooks.js --uninstall"
+  },
+  "devDependencies": {
+    "electron": "^33.2.1"
+  }
+}
