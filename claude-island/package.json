@@ -1,7 +1,9 @@
 {
   "name": "claude-island",
-  "version": "1.0.0",
+  "productName": "Claude Island",
+  "version": "1.1.0",
   "description": "Плашка-«чёлка» для Claude Code на Windows: этапы работы, таймер и живой ползунок",
+  "author": "Go_promo",
   "main": "main.js",
   "private": true,
   "scripts": {
@@ -10,9 +12,47 @@
     "debug": "electron . --debug",
     "install-hooks": "node install-hooks.js",
     "uninstall-hooks": "node install-hooks.js --uninstall",
-    "fix-electron": "node node_modules/electron/install.js"
+    "fix-electron": "node node_modules/electron/install.js",
+    "dist": "electron-builder --win --publish never"
   },
   "devDependencies": {
-    "electron": "^45.4.1"
+    "electron": "^45.4.1",
+    "electron-builder": "^26.18.0"
+  },
+  "build": {
+    "appId": "local.claude-island",
+    "productName": "Claude Island",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "main.js",
+      "preload.js",
+      "hook.js",
+      "hooks-config.js",
+      "renderer/**",
+      "assets/**",
+      "package.json"
+    ],
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "Claude Island",
+      "runAfterFinish": true,
+      "artifactName": "Claude-Island-Setup-${version}.exe"
+    },
+    "portable": {
+      "artifactName": "Claude-Island-Portable-${version}.exe"
+    }
   }
 }
