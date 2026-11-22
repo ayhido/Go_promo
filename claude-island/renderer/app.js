@@ -177,6 +177,7 @@ function startRun(evt) {
 // ───────────────────────── обработка событий хуков ─────────────────────────
 function handle(evt) {
   if (!evt || !evt.event) return;
+  if (evt.event === '__demo') { runDemo(); return; }
   const sameSession = !S.session || !evt.session || evt.session === S.session;
 
   switch (evt.event) {
@@ -475,10 +476,10 @@ if (window.island && typeof window.island.onEvent === 'function') {
   window.island.onEvent(handle);
 }
 
-// Демо-режим: `npm run demo` или index.html?demo=1 в браузере.
-if (new URLSearchParams(location.search).has('demo')) {
-  const at = (ms, evt) => setTimeout(() => handle({ session: 'demo', cwd: 'C:/Projects/webshop', ts: Date.now(), ...evt }), ms);
-  const run = () => {
+// Демо: `npm run demo`, index.html?demo=1 в браузере или http://127.0.0.1:47321/test.
+const at = (ms, evt) => setTimeout(() => handle({ session: 'demo', cwd: 'C:/Projects/webshop', ts: Date.now(), ...evt }), ms);
+function runDemo() {
+  {
     at(300, { event: 'UserPromptSubmit', prompt: 'Итог в корзине считает НДС неправильно, исправь и прогони тесты' });
     at(2200, { event: 'PreToolUse', tool: 'Grep', input: { pattern: 'calculateTotal' } });
     at(3600, { event: 'PreToolUse', tool: 'Read', input: { file_path: 'C:/Projects/webshop/src/cart.js' } });
@@ -487,9 +488,11 @@ if (new URLSearchParams(location.search).has('demo')) {
     at(9800, { event: 'PreToolUse', tool: 'Edit', input: { file_path: 'C:/Projects/webshop/src/vat.js' } });
     at(12000, { event: 'PreToolUse', tool: 'Bash', input: { command: 'npm test', description: 'Run tests' } });
     at(15500, { event: 'Stop', last: 'Готово! Итог теперь правильно добавляет НДС. Все 48 тестов проходят.' });
-  };
-  run();
-  setInterval(run, 15500 + HOLD_DONE_MS + FADE_MS + 1500);
+  }
+}
+if (new URLSearchParams(location.search).has('demo')) {
+  runDemo();
+  setInterval(runDemo, 15500 + HOLD_DONE_MS + FADE_MS + 1500);
 }
 
 tickText();

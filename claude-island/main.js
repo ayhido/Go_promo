@@ -59,8 +59,15 @@ function deliver(evt) {
 function startServer() {
   const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
-      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' });
       return res.end('ok');
+    }
+    // Проверка без Claude Code: открыть в браузере http://127.0.0.1:47321/test
+    if (req.method === 'GET' && req.url === '/test') {
+      console.log('[claude-island] запускаю проверочный показ');
+      deliver({ event: '__demo' });
+      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+      return res.end('<meta charset="utf-8"><body style="font:16px system-ui;padding:24px">Плашка работает — смотрите вверх экрана. Окно можно закрыть.</body>');
     }
     if (req.method !== 'POST' || req.url !== '/event') {
       res.writeHead(404);
@@ -73,7 +80,9 @@ function startServer() {
     });
     req.on('end', () => {
       try {
-        deliver(JSON.parse(body));
+        const evt = JSON.parse(body);
+        console.log(`[claude-island] событие: ${evt.event}${evt.tool ? ' · ' + evt.tool : ''}`);
+        deliver(evt);
         res.writeHead(204);
       } catch {
         res.writeHead(400);
@@ -90,9 +99,28 @@ function startServer() {
   });
 }
 
+// Прозрачные окна на части видеокарт Windows падают или чернеют — рисуем программно.
+app.disableHardwareAcceleration();
+
+process.on('uncaughtException', (err) => console.error('[claude-island] ошибка:', err));
+
 app.whenReady().then(() => {
   createWindow();
   startServer();
 });
 
-app.on('window-all-closed', () => app.quit());
+// Если окно плашки упало или закрылось — поднимаем его заново, а не выходим.
+app.on('render-process-gone', (_e, _wc, details) => {
+  console.error('[claude-island] окно упало:', details.reason, '— перезапускаю');
+  if (win && !win.isDestroyed()) win.destroy();
+  win = null;
+  setTimeout(createWindow, 500);
+});
+app.on('child-process-gone', (_e, details) => {
+  console.error('[claude-island] процесс', details.type, 'завершился:', details.reason);
+});
+app.on('window-all-closed', () => {
+  console.log('[claude-island] окно закрыто — открываю снова');
+  setTimeout(() => { if (!win) createWindow(); }, 500);
+});
+app.on('will-quit', () => console.log('[claude-island] программа завершается'));
