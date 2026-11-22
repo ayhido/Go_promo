@@ -7,6 +7,7 @@
   "scripts": {
     "start": "electron .",
     "demo": "electron . --demo",
+    "debug": "electron . --debug",
     "install-hooks": "node install-hooks.js",
     "uninstall-hooks": "node install-hooks.js --uninstall",
     "fix-electron": "node node_modules/electron/install.js"

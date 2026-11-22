@@ -472,8 +472,22 @@ const bar = (() => {
 })();
 
 // ───────────────────────── источники событий ─────────────────────────
-if (window.island && typeof window.island.onEvent === 'function') {
-  window.island.onEvent(handle);
+window.addEventListener('error', (e) => console.error('ошибка в плашке:', e.message, e.filename + ':' + e.lineno));
+
+if (window.claudeIsland && typeof window.claudeIsland.onEvent === 'function') {
+  window.claudeIsland.onEvent((evt) => {
+    console.log('получено событие ' + (evt && evt.event));
+    try { handle(evt); } catch (err) { console.error('ошибка обработки:', err.message); }
+  });
+  console.log('мост с программой подключён');
+} else {
+  console.error('НЕТ моста с программой (preload не загрузился)');
+}
+
+// В режиме отладки фон окна видимый, а плашка не прячется.
+if (new URLSearchParams(location.search).has('debug')) {
+  document.body.style.background = '#1e3a8a';
+  island.classList.remove('hidden');
 }
 
 // Демо: `npm run demo`, index.html?demo=1 в браузере или http://127.0.0.1:47321/test.

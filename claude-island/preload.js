@@ -1,5 +1,5 @@
 const { contextBridge, ipcRenderer } = require('electron');
 
-contextBridge.exposeInMainWorld('island', {
+contextBridge.exposeInMainWorld('claudeIsland', {
   onEvent: (cb) => ipcRenderer.on('claude-event', (_e, data) => cb(data)),
 });
